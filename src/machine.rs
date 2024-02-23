@@ -27,6 +27,7 @@ impl From<u16> for ParsedValue{
     }
 }
 
+#[derive(Debug)]
 pub enum Operation {
     Halt,
     Set,
@@ -114,7 +115,7 @@ impl Display for Operation {
 }
 
 impl Operation {
-    pub fn operands(&self) -> u16 {
+    pub fn operands(&self) -> usize {
         match *self {
             Self::Halt | Self::Ret | Self::Noop => 0,
             Self::Push | Self::Pop | Self::Jmp | Self::Call | Self::Out | Self::In => 1,
@@ -123,6 +124,15 @@ impl Operation {
             Operation::Error(_) => 0xffff,
         }
     }
+}
+
+#[derive(Debug)]
+pub enum RuntimeError {
+    ErrFinished,
+    ErrUnknownOperation(u16),
+    ErrUnknownOperand(u16),
+    ErrRegisterExpected,
+    ErrStackEmpty
 }
 
 impl VirtualMachine {
@@ -148,7 +158,121 @@ impl VirtualMachine {
         })
     }
 
-    pub fn summary(&self) -> () {
-        println!("Program with {} dbytes in memory, {} items on stack.",self.memory.len(),self.stack.len());
+    pub fn init_from_sequence(input_sequence:&[u16]) -> Self {
+        VirtualMachine{
+            memory : Vec::from_iter(input_sequence.iter().map(|x|*x)),
+            registers : [0;8],
+            stack : Vec::<u16>::new(),
+            program_counter : 0
+        }
+    }
+
+    fn dereference(&self,val:&ParsedValue) -> u16 {
+        match val {
+            ParsedValue::Literal(x) => *x,
+            ParsedValue::Register(r) => self.registers[*r as usize].clone(),
+            ParsedValue::Error(e) => e & 0x7FFF,
+        }
+    }
+
+    pub fn operation(&mut self) -> Result<Operation,RuntimeError> {
+        //fetch
+        let current_instruction = Operation::from(self.memory[self.program_counter]);
+        let old_count = self.program_counter;
+        //decode
+        let argcount = current_instruction.operands();
+        let mut operands:Vec<ParsedValue> = Vec::with_capacity(argcount);
+        for x in old_count+1..old_count+1+argcount {
+            let pv = ParsedValue::from(self.memory[x]);
+            if let ParsedValue::Error(x) = pv {
+                return Err(RuntimeError::ErrUnknownOperand(x));
+            } else {
+                operands.push(pv);
+            }
+        }
+        //Update program counter here, so that jumping instructions can still overwrite it.
+        self.program_counter += argcount+1;
+        //execute, store
+        match current_instruction {
+            Operation::Halt => {
+                self.program_counter = old_count;
+                return Err(RuntimeError::ErrFinished)
+            },
+            Operation::Set => {
+                match operands[0] {
+                    ParsedValue::Literal(_) => return Err(RuntimeError::ErrRegisterExpected),
+                    ParsedValue::Register(r) => {
+                        let val_b = self.dereference(&operands[1]);
+                        self.registers[r as usize] = val_b;
+                    },
+                    ParsedValue::Error(_) => panic!("Should never reach!"),
+                }
+            },
+            Operation::Push => {
+                match operands[0] {
+                    ParsedValue::Literal(l) => {
+                        self.stack.push(l);
+                    }
+                    ParsedValue::Register(r) => {
+                        self.stack.push(self.registers[r as usize]);
+                    }
+                    ParsedValue::Error(e) => {
+                        return Err(RuntimeError::ErrUnknownOperand(e));
+                    }
+                }
+            },
+            Operation::Pop => {
+                match operands[0] {
+                    ParsedValue::Register(r) => {
+                        let popped = self.stack.pop();
+                        if let Some(val) = popped {
+                            self.registers[r as usize] = val;
+                        } else {
+                            return Err(RuntimeError::ErrStackEmpty);
+                        }
+                    },
+                    ParsedValue::Literal(v) => return Err(RuntimeError::ErrUnknownOperand(v)),
+                    ParsedValue::Error(v) => return Err(RuntimeError::ErrUnknownOperand(v))
+                }
+            },
+            Operation::Eq => todo!(),
+            Operation::Gt => todo!(),
+            Operation::Jmp => todo!(),
+            Operation::Jt => todo!(),
+            Operation::Jf => todo!(),
+            Operation::Add => {
+                if let ParsedValue::Register(a) = operands[0] {
+                    let b = self.dereference(&operands[1]);
+                    let c = self.dereference(&operands[2]);
+                    self.registers[a as usize] = (b + c) & 0x7FFF;
+                } else {
+                    return Err(RuntimeError::ErrRegisterExpected);
+                }
+            },
+            Operation::Mult => todo!(),
+            Operation::Mod => todo!(),
+            Operation::And => todo!(),
+            Operation::Or => todo!(),
+            Operation::Not => todo!(),
+            Operation::Rmem => todo!(),
+            Operation::Wmem => todo!(),
+            Operation::Call => todo!(),
+            Operation::Ret => todo!(),
+            Operation::Out => {
+                let to_print:char = char::from_u32(self.dereference(&operands[0])as u32).unwrap_or('�');
+                print!("{to_print}");
+            },
+            Operation::In => todo!(),
+            Operation::Noop => (),
+            Operation::Error(_) => return Err(RuntimeError::ErrUnknownOperation(self.memory[old_count])),
+        };
+        Ok(current_instruction)
+    }
+
+}
+
+impl Display for VirtualMachine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmtResult {
+        write!(f,"[PC:{}; R:{:?}; mem {} stack {:?}]",self.program_counter,self.registers,self.memory.len(),self.stack)
     }
 }
