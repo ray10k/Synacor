@@ -235,11 +235,43 @@ impl VirtualMachine {
                     ParsedValue::Error(v) => return Err(RuntimeError::ErrUnknownOperand(v))
                 }
             },
-            Operation::Eq => todo!(),
-            Operation::Gt => todo!(),
-            Operation::Jmp => todo!(),
-            Operation::Jt => todo!(),
-            Operation::Jf => todo!(),
+            Operation::Eq => {
+                if let ParsedValue::Register(a) = operands[0] {
+                    let b = self.dereference(&operands[1]);
+                    let c = self.dereference(&operands[2]);
+                    if b == c {
+                        self.registers[a as usize] = 1;
+                    } else {
+                        self.registers[a as usize] = 0;
+                    }
+                } else {
+                    return Err(RuntimeError::ErrRegisterExpected);
+                }
+            },
+            Operation::Gt => {
+                if let ParsedValue::Register(a) = operands[0] {
+                    let b = self.dereference(&operands[1]);
+                    let c = self.dereference(&operands[2]);
+                    if b > c {
+                        self.registers[a as usize] = 1;
+                    } else {
+                        self.registers[a as usize] = 0;
+                    }
+                }
+            },
+            Operation::Jmp => {
+                self.program_counter = self.dereference(&operands[0]) as usize;
+            },
+            Operation::Jt => {
+                if self.dereference(&operands[0]) != 0 {
+                    self.program_counter = self.dereference(&operands[1]) as usize;
+                }
+            },
+            Operation::Jf => {
+                if self.dereference(&operands[0]) == 0 {
+                    self.program_counter = self.dereference(&operands[1]) as usize;
+                }
+            },
             Operation::Add => {
                 if let ParsedValue::Register(a) = operands[0] {
                     let b = self.dereference(&operands[1]);
@@ -249,13 +281,72 @@ impl VirtualMachine {
                     return Err(RuntimeError::ErrRegisterExpected);
                 }
             },
-            Operation::Mult => todo!(),
-            Operation::Mod => todo!(),
-            Operation::And => todo!(),
-            Operation::Or => todo!(),
-            Operation::Not => todo!(),
-            Operation::Rmem => todo!(),
-            Operation::Wmem => todo!(),
+            Operation::Mult => {
+                if let ParsedValue::Register(a) = operands[0] {
+                    let b = self.dereference(&operands[1]) as u32;
+                    let c = self.dereference(&operands[2]) as u32;
+                    self.registers[a as usize] = (b * c) as u16 & 0x7FFF;
+                } else {
+                    return Err(RuntimeError::ErrRegisterExpected);
+                }
+            },
+            Operation::Mod => {
+                if let ParsedValue::Register(a) = operands[0] {
+                    let b = self.dereference(&operands[1]);
+                    let c = self.dereference(&operands[2]);
+                    self.registers[a as usize] = b % c;
+                } else {
+                    return Err(RuntimeError::ErrRegisterExpected);
+                }
+            },
+            Operation::And => {
+                if let ParsedValue::Register(a) = operands[0] {
+                    let b = self.dereference(&operands[1]);
+                    let c = self.dereference(&operands[2]);
+                    self.registers[a as usize] = b & c;
+                } else {
+                    return Err(RuntimeError::ErrRegisterExpected);
+                }
+            },
+            Operation::Or => {
+                if let ParsedValue::Register(a) = operands[0] {
+                    let b = self.dereference(&operands[1]);
+                    let c = self.dereference(&operands[2]);
+                    self.registers[a as usize] = b | c;
+                } else {
+                    return Err(RuntimeError::ErrRegisterExpected);
+                }
+            },
+            Operation::Not => {
+                if let ParsedValue::Register(a) = operands[0] {
+                    let b = self.dereference(&operands[1]);
+                    self.registers[a as usize] = b ^ 0x7FFF;
+                } else {
+                    return Err(RuntimeError::ErrRegisterExpected);
+                }
+            },
+            Operation::Rmem => {
+                if let ParsedValue::Register(a) = operands[0] {
+                    let b = self.dereference(&operands[1]);
+                    let val:u16;
+                    if self.memory.len() as u16 <= b {
+                        val = self.memory[b as usize];
+                    } else {
+                        val = 0;
+                    }
+                    self.registers[a as usize] = val;
+                } else {
+                    return Err(RuntimeError::ErrRegisterExpected);
+                }
+            },
+            Operation::Wmem => {
+                let a = self.dereference(&operands[0]);
+                let b = self.dereference(&operands[1]);
+                if self.memory.len() < b as usize {
+                    self.memory.resize(b as usize, 0);
+                }
+                self.memory[b as usize] = a;
+            },
             Operation::Call => todo!(),
             Operation::Ret => todo!(),
             Operation::Out => {
