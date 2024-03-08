@@ -16,17 +16,17 @@ fn main() {
     let vm = VirtualMachine::init_from_file(&arguments[1][..]);
     match vm {
         Ok(mach) => {
+            let mut mach = mach;
             println!("File parsed OK: {mach}");
-
+            println!("Starting program execution.");
+            for op in mach.run_program(false) {
+                
+            }
         },
         Err(_) => println!("Could not parse file!"),
     }
 
-    let mut test_vm = VirtualMachine::init_from_sequence(&[9,32768,32769,4,19,32768]);
-    let first = test_vm.operation();
-    print!("{first:?}");
-    let second = test_vm.operation();
-    println!(",{second:?}");
+    
 }
 
 

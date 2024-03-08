@@ -1,4 +1,4 @@
-use std::io::{BufReader,Read};
+use std::io::{BufReader,Read,stdin};
 use std::fs::File;
 use std::convert::From;
 use std::fmt::{Display,Result as fmtResult};
@@ -7,8 +7,13 @@ use itertools::Itertools;
 pub struct VirtualMachine {
     memory:Vec<u16>,
     registers:[u16;8],
-    stack:Vec<u16>,
+    stack:Vec<usize>,
     program_counter:usize
+}
+
+pub struct VirtualMachineStep<'a> {
+    machine:&'a mut VirtualMachine,
+    verbose:bool,
 }
 
 pub enum ParsedValue {
@@ -153,7 +158,7 @@ impl VirtualMachine {
         Ok(VirtualMachine{
             memory : data_buffer,
             registers : [0;8],
-            stack : Vec::<u16>::new(),
+            stack : Vec::<usize>::new(),
             program_counter : 0
         })
     }
@@ -162,7 +167,7 @@ impl VirtualMachine {
         VirtualMachine{
             memory : Vec::from_iter(input_sequence.iter().map(|x|*x)),
             registers : [0;8],
-            stack : Vec::<u16>::new(),
+            stack : Vec::<usize>::new(),
             program_counter : 0
         }
     }
@@ -211,10 +216,10 @@ impl VirtualMachine {
             Operation::Push => {
                 match operands[0] {
                     ParsedValue::Literal(l) => {
-                        self.stack.push(l);
+                        self.stack.push(l.into());
                     }
                     ParsedValue::Register(r) => {
-                        self.stack.push(self.registers[r as usize]);
+                        self.stack.push(self.registers[r as usize].into());
                     }
                     ParsedValue::Error(e) => {
                         return Err(RuntimeError::ErrUnknownOperand(e));
@@ -226,7 +231,7 @@ impl VirtualMachine {
                     ParsedValue::Register(r) => {
                         let popped = self.stack.pop();
                         if let Some(val) = popped {
-                            self.registers[r as usize] = val;
+                            self.registers[r as usize] = (val & 0x7fff) as u16;
                         } else {
                             return Err(RuntimeError::ErrStackEmpty);
                         }
@@ -347,23 +352,85 @@ impl VirtualMachine {
                 }
                 self.memory[b as usize] = a;
             },
-            Operation::Call => todo!(),
-            Operation::Ret => todo!(),
+            Operation::Call => {
+                if let ParsedValue::Error(a) = operands[0] {
+                    return Err(RuntimeError::ErrUnknownOperand(a));
+                } else {
+                    self.stack.push(self.program_counter);
+                    self.program_counter = self.dereference(&operands[0]).into();
+                }
+            },
+            Operation::Ret => {
+                if self.stack.len() > 0 {
+                    self.program_counter = self.stack.pop().expect("Stack empty!");
+                } else {
+                    return Err(RuntimeError::ErrStackEmpty);
+                }
+            },
             Operation::Out => {
                 let to_print:char = char::from_u32(self.dereference(&operands[0])as u32).unwrap_or('�');
                 print!("{to_print}");
             },
-            Operation::In => todo!(),
+            Operation::In => {
+                //Assumption: Since <a> is only a single target, treat this as "read until newline, then put the last character
+                //before the newline into <a>."
+                if let ParsedValue::Literal(_) = operands[0] {
+                    return Err(RuntimeError::ErrRegisterExpected);
+                }
+                let register_number = {
+                    if let ParsedValue::Register(x) = operands[0] {
+                        x as usize
+                    } else {
+                        0xff as usize
+                    }
+                };
+                let mut buffer = String::new();
+                let res = stdin().read_line(&mut buffer);
+                if let Ok(_) = res {
+                    let last_char = buffer.trim() //Take the user's input, and trim off the leading/trailing whitespace or linebreaks.
+                    .chars() //Get an iterator over the characters in the resulting substring.
+                    .rev() //Reverse the character-iterator. This way, the last characters are now at the start.
+                    .next() //Take one character from the string; should be the last before the linebreak.
+                    .unwrap_or('\0'); //null-byte to indicate nothing was entered, otherwise the character itself.
+                    if last_char.is_ascii() {
+                        self.registers[register_number] = last_char as u16;
+                    } else {
+                        //No idea how to handle the case where a non-ascii character got input, so... wild guessing time.
+                        self.registers[register_number] = 0x7fff
+                    }
+                }
+            },
             Operation::Noop => (),
             Operation::Error(_) => return Err(RuntimeError::ErrUnknownOperation(self.memory[old_count])),
         };
         Ok(current_instruction)
     }
 
+    pub fn run_program(&mut self, verbose:bool) -> VirtualMachineStep {
+        VirtualMachineStep{
+            machine:self,
+            verbose:verbose
+        }
+    }
 }
 
 impl Display for VirtualMachine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmtResult {
         write!(f,"[PC:{}; R:{:?}; mem {} stack {:?}]",self.program_counter,self.registers,self.memory.len(),self.stack)
+    }
+}
+
+impl<'a> Iterator for VirtualMachineStep<'a> {
+    type Item = Operation;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let res = self.machine.operation();
+        match res {
+            Ok(x) => Some(x),
+            Err(x) => {
+                println!("{:?}",x);
+                None
+            },
+        }
     }
 }
