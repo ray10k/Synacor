@@ -1,10 +1,20 @@
 use std::env;
+use std::io;
 
 use crate::machine::VirtualMachine;
 
 
 mod machine;
+mod ui;
 
+fn main()->io::Result<()>{
+    let mut term = ui::start_ui()?;
+    let app = ui::MainUiState::default().main_loop(&mut term);
+    ui::stop_ui()?;
+    Ok(())
+}
+
+/*
 fn main() {
     println!("Starting up...");
     let arguments:Vec<String> = env::args().collect();
@@ -28,5 +38,5 @@ fn main() {
 
     
 }
-
+ */
 
