@@ -140,6 +140,13 @@ pub enum RuntimeError {
     ErrStackEmpty
 }
 
+#[derive(Default,Debug)]
+pub struct ProgramState {
+    pub registers:[u16;8],
+    pub program_counter:usize,
+    pub stack_depth:usize
+}
+
 impl VirtualMachine {
     pub fn init_from_file(file_path:&str) -> Result<Self,std::io::Error> {
         let source_file = File::open(file_path)?;
