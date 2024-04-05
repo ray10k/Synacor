@@ -1,4 +1,4 @@
-use std::io::{BufReader,Read,stdin};
+use std::io::{BufReader,Read,BufWriter,Write,stdin,Result as io_result};
 use std::fs::File;
 use std::convert::From;
 use std::fmt::{Display,Result as fmtResult};
@@ -418,6 +418,57 @@ impl VirtualMachine {
             machine:self,
             verbose:verbose
         }
+    }
+
+    pub fn dump_memory_to_file(&self, save_location:&str) -> io_result<()>{
+        //Set up the output writer.
+        let destination_file = File::create(save_location)?;
+        let mut out_writer = BufWriter::new(destination_file);
+        //Will need to have some control over the iterator, both for operands and for raw data.
+        let mut memory_iterator = self.memory.iter().enumerate();
+
+
+        while let Some((index,current_word)) = memory_iterator.next() {
+            let value = Operation::from(*current_word);
+            if let Operation::Error(raw) = value {
+                //Must be some raw value. Print both the hex value, and (if possible) the ASCII characters.
+                let low = (raw & 0xff) as u8;
+                let hi = ((raw>>8) &0xff) as u8;
+                writeln!(
+                    &mut out_writer,
+                    "{:04X}: <{raw:04X}> {}{}",
+                    index&0xffff,
+                    {
+                        if low.is_ascii() && !low.is_ascii_control() {
+                            low as char
+                        } else {
+                            ' '
+                        }
+                    },
+                    {
+                        if hi.is_ascii() && !hi.is_ascii_control() {
+                            hi as char
+                        } else {
+                            ' '
+                        }
+                    }
+                )?;
+            } else {
+                write!(&mut out_writer,"{:04X}: {value} ",index&0xffff)?;
+                for _ in 0..value.operands() {
+                    let (_,operand) = memory_iterator.next().expect("Unexpected end of file!");
+                    let operand = ParsedValue::from(*operand);
+                    match operand {
+                        ParsedValue::Literal(v) => write!(&mut out_writer,"{v:04X}  ")?,
+                        ParsedValue::Register(r) => write!(&mut out_writer,"REG{r:1}  ")?,
+                        ParsedValue::Error(e) => write!(&mut out_writer,"!{e:04X} ")?,
+                    }
+                }
+                writeln!(&mut out_writer,"")?;
+            }
+        }
+
+        Ok(())
     }
 }
 
