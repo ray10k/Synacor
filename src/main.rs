@@ -38,7 +38,8 @@ fn main() {
             } else {
             for op in mach.run_program(false) {
                 
-            }}
+            }};
+            println!("Final state of VM: {mach}");
         },
         Err(_) => println!("Could not parse file!"),
     }

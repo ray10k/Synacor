@@ -341,7 +341,7 @@ impl VirtualMachine {
                 if let ParsedValue::Register(a) = operands[0] {
                     let b = self.dereference(&operands[1]);
                     let val:u16;
-                    if self.memory.len() as u16 <= b {
+                    if self.memory.len() as u16 >= b {
                         val = self.memory[b as usize];
                     } else {
                         val = 0;
@@ -355,7 +355,7 @@ impl VirtualMachine {
                 let a = self.dereference(&operands[0]);
                 let b = self.dereference(&operands[1]);
                 if self.memory.len() < b as usize {
-                    self.memory.resize(b as usize, 0);
+                    self.memory.resize((b+1) as usize, 0);
                 }
                 self.memory[b as usize] = a;
             },
@@ -436,7 +436,7 @@ impl VirtualMachine {
                 let hi = ((raw>>8) &0xff) as u8;
                 writeln!(
                     &mut out_writer,
-                    "{:04X}: <{raw:04X}> {}{}",
+                    "{:04X}: <{raw:04X}      > {}{}",
                     index&0xffff,
                     {
                         if low.is_ascii() && !low.is_ascii_control() {
@@ -454,7 +454,34 @@ impl VirtualMachine {
                     }
                 )?;
             } else {
-                write!(&mut out_writer,"{:04X}: {value} ",index&0xffff)?;
+                let wordcount = 1 + value.operands();
+                let raw_bytes = &self.memory[index..=(wordcount+index)];
+                let mut ascii_chars:String = String::with_capacity(8);
+
+                for raw_word in raw_bytes {
+                    let low = (raw_word & 0xff) as u8;
+                    let high = ((raw_word >> 8) & 0xff) as u8;
+                    ascii_chars.push(
+                        if low.is_ascii_alphanumeric() {
+                            low as char
+                        } else {
+                            ' '//'�'
+                        }
+                    );
+                    ascii_chars.push(
+                        if high.is_ascii_alphanumeric() {
+                            high as char
+                        } else {
+                            ' '//'�'
+                        }
+                    )
+                }
+
+                while ascii_chars.len() < 8 {
+                    ascii_chars.push(' ');
+                }
+
+                write!(&mut out_writer,"{:04X}: <{ascii_chars}> {value} ",index&0xffff)?;
                 for _ in 0..value.operands() {
                     let (_,operand) = memory_iterator.next().expect("Unexpected end of file!");
                     let operand = ParsedValue::from(*operand);
