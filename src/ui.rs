@@ -1,6 +1,7 @@
+use std::default;
 use std::io::{self, stdout, Stdout};
 
-use crossterm::event::{KeyCode, KeyEventKind};
+use crossterm::event::KeyCode;
 use ratatui::prelude::*;
 use ratatui::symbols::border;
 use ratatui::Frame;
@@ -8,6 +9,7 @@ use ratatui::widgets::{block::*,*};
 use crossterm::{event, execute, terminal::*};
 
 use crate::machine::ProgramState;
+use crate::interface::{UiInterface,ProgramStep,RegisterState};
 
 pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 
@@ -23,20 +25,18 @@ pub fn stop_ui() -> io::Result<()> {
     Ok(())
 }
 
-pub trait UiIo {
-    fn get_output(&mut self) -> Option<String>;
-    fn send_input(&mut self, input:&str) -> io::Result<()>;
-}
-
 #[derive(Debug,Default)]
 pub struct MainUiState {
-    prog_states:Vec<ProgramState>,
+    prog_states:Vec<ProgramStep>,
     exit:bool
 }
 
 impl MainUiState {
-    pub fn main_loop(&mut self, terminal:&mut Tui /* , io:impl UiIo*/) -> io::Result<()> {
+    pub fn main_loop(&mut self, terminal:&mut Tui, input:&mut impl UiInterface) -> io::Result<()> {
         while !self.exit {
+            let latest_steps = input.get_steps();
+            
+            
             terminal.draw(|frame| self.render_frame(frame))?;
             self.handle_input()?;
         }
@@ -52,10 +52,10 @@ impl MainUiState {
             .direction(Direction::Horizontal)
             .constraints(vec![Constraint::Fill(1),Constraint::Length(16)])
             .split(root_layout[1]);
-        let default_state = ProgramState::default();
+        let default_state = ProgramStep::default();
         let current_state = self.prog_states.last().unwrap_or(&default_state);
 
-        frame.render_widget(self.get_register_header(current_state), root_layout[0]);
+        frame.render_widget(&current_state.registers, root_layout[0]);
         frame.render_widget(Paragraph::new("Terminal goes here.").block(Block::default().title("Terminal").borders(Borders::ALL).border_set(border::THICK)),mid_layout[0]);
         frame.render_widget(Paragraph::new("Executed instructions go here").block(Block::default().title("Instructions").borders(Borders::ALL).border_set(border::THICK)), mid_layout[1]);
         frame.render_widget(self, root_layout[2]);
@@ -71,14 +71,19 @@ impl MainUiState {
         }
         Ok(())
     }
+}
 
-    fn get_register_header(&self, state:&ProgramState) -> Paragraph {
+impl Widget for &RegisterState {
+    fn render(self, area: Rect, buf: &mut Buffer)
+    where
+        Self: Sized {
         let text = vec![
-        format!("R0:{} R1:{} R2:{} R3:{}  PC:{}",state.registers[0],state.registers[1],state.registers[2],state.registers[3],state.program_counter).into(),
-        format!("R4:{} R5:{} R6:{} R7:{}  ST:{}",state.registers[4],state.registers[5],state.registers[6],state.registers[7],state.stack_depth).into()];
-        Paragraph::new(text).block(Block::default().title("registers").borders(Borders::ALL).border_set(border::THICK))
+            format!("R0:{} R1:{} R2:{} R3:{}  PC:{}",self.registers[0],self.registers[1],self.registers[2],self.registers[3],self.program_counter).into(),
+            format!("R4:{} R5:{} R6:{} R7:{}  ST:{}",self.registers[4],self.registers[5],self.registers[6],self.registers[7],self.stack_depth).into()
+        ];
+        let par = Paragraph::new(text).block(Block::default().title("registers").borders(Borders::ALL).border_set(border::THICK));
+        par.render(area,buf)
     }
-
 }
 
 impl Widget for &MainUiState {

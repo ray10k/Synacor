@@ -6,6 +6,7 @@ use crate::machine::VirtualMachine;
 
 mod machine;
 mod ui;
+mod interface;
 
 /*
 fn main()->io::Result<()>{
