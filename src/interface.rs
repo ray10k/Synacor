@@ -8,7 +8,7 @@ pub enum RuntimeState {
     RunUntilAddress(u16),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RegisterState {
     pub registers:[u16;8],
     pub stack_depth:usize,
@@ -21,10 +21,23 @@ impl Default for RegisterState {
     }
 }
 
-#[derive(Debug,Default)]
+#[derive(Debug,Default,Clone)]
 pub struct ProgramStep {
     pub registers:RegisterState,
     pub instruction:String,
+}
+
+impl ProgramStep {
+    pub const fn const_default() -> Self {
+        ProgramStep{
+            registers: RegisterState{
+                registers:[0;8],
+                stack_depth: 0,
+                program_counter: 0
+            },
+            instruction : String::new()
+        }
+    }
 }
 
 pub trait UiInterface {

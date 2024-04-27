@@ -13,7 +13,7 @@ pub struct VirtualMachine {
 
 pub struct VirtualMachineStep<'a> {
     machine:&'a mut VirtualMachine,
-    verbose:bool,
+    /*verbose:bool,*/
 }
 
 pub enum ParsedValue {
@@ -413,10 +413,10 @@ impl VirtualMachine {
         Ok(current_instruction)
     }
 
-    pub fn run_program(&mut self, verbose:bool) -> VirtualMachineStep {
+    pub fn run_program(&mut self, _verbose:bool) -> VirtualMachineStep {
         VirtualMachineStep{
             machine:self,
-            verbose:verbose
+            /*verbose:verbose*/
         }
     }
 

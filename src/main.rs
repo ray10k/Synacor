@@ -1,23 +1,62 @@
 use std::env;
 use std::io;
 
-use crate::machine::VirtualMachine;
+use interface::ProgramStep;
 
+use crate::interface::RegisterState;
+use crate::machine::VirtualMachine;
+use crate::interface::UiInterface;
 
 mod machine;
 mod ui;
 mod interface;
 
-/*
+
 fn main()->io::Result<()>{
     let mut term = ui::start_ui()?;
-    let app = ui::MainUiState::default().main_loop(&mut term);
+    let mut interface = TestUiInterface::default();
+    let _app = ui::MainUiState::default().main_loop(&mut term,&mut interface);
     ui::stop_ui()?;
     Ok(())
-}*/
- 
+}
 
-fn main() {
+#[derive(Default)]
+struct TestUiInterface {
+    step:u8,
+    counter:usize
+}
+
+impl UiInterface for TestUiInterface {
+    fn get_output(&mut self) -> Option<String> {
+        None
+    }
+
+    fn get_steps(&mut self) -> Vec<interface::ProgramStep> {
+        self.step += 1;
+        if self.step > 15 {
+            self.step = 0;
+        }
+        self.counter += 1;
+        vec![ProgramStep{
+            registers: RegisterState{
+                registers:[1<<self.step as u16;8],
+                stack_depth: self.counter,
+                program_counter: (self.counter & 0xffff) as u16
+            },
+            instruction: String::from(""),
+        };self.step as usize]
+    }
+
+    fn send_input(&mut self, _:&str) -> std::io::Result<()> {
+        std::io::Result::Ok(())
+    }
+
+    fn send_state(&mut self, _:interface::RuntimeState) -> std::io::Result<()> {
+        std::io::Result::Ok(())
+    }
+}
+
+/*fn main() {
     println!("Starting up...");
     let arguments:Vec<String> = env::args().collect();
     println!("{:?}",arguments);
@@ -44,5 +83,5 @@ fn main() {
         },
         Err(_) => println!("Could not parse file!"),
     }
-}
+}*/
 
