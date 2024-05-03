@@ -1,4 +1,4 @@
-
+use std::rc::Rc;
 
 pub enum RuntimeState {
     Run,
@@ -43,6 +43,7 @@ impl ProgramStep {
 pub trait UiInterface {
     fn get_output(&mut self) -> Option<String>;
     fn get_steps(&mut self) -> Vec<ProgramStep>;
+    fn need_input(&self) -> bool;
     fn send_input(&mut self, input:&str) -> std::io::Result<()>;
     fn send_state(&mut self, input:RuntimeState) -> std::io::Result<()>;
 }

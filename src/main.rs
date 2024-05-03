@@ -1,5 +1,6 @@
 use std::env;
 use std::io;
+use std::rc::Rc;
 
 use interface::ProgramStep;
 
@@ -28,7 +29,15 @@ struct TestUiInterface {
 
 impl UiInterface for TestUiInterface {
     fn get_output(&mut self) -> Option<String> {
-        None
+        if self.step == 0 {
+            Some(String::from("Hello world!"))
+        } else if self.counter % 3 == 0 {
+            Some(String::from("Take a break!\n"))
+        } else if self.counter % 7 == 0 {
+            Some(String::from("In the\nmiddle of things."))
+        } else {
+            None
+        }
     }
 
     fn get_steps(&mut self) -> Vec<interface::ProgramStep> {
@@ -43,7 +52,7 @@ impl UiInterface for TestUiInterface {
                 stack_depth: self.counter,
                 program_counter: (self.counter & 0xffff) as u16
             },
-            instruction: String::from(""),
+            instruction: format!("{:04x} -> HELO 1111 2222",self.counter & 0xff),
         };self.step as usize]
     }
 
@@ -53,6 +62,10 @@ impl UiInterface for TestUiInterface {
 
     fn send_state(&mut self, _:interface::RuntimeState) -> std::io::Result<()> {
         std::io::Result::Ok(())
+    }
+
+    fn need_input(&self) -> bool {
+        false
     }
 }
 

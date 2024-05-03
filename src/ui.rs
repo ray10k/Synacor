@@ -29,6 +29,7 @@ pub fn stop_ui() -> io::Result<()> {
 #[derive(Debug,Default)]
 pub struct MainUiState {
     prog_states:Box<CircularBuffer<1024,ProgramStep>>,
+    terminal_text:Vec<String>,
 
     exit:bool
 }
@@ -40,6 +41,7 @@ impl MainUiState {
     pub fn new() -> Self{
         Self { 
             prog_states: CircularBuffer::<1024,ProgramStep>::boxed(), 
+            terminal_text: Vec::new(),
             exit: false 
         }
     }
@@ -48,6 +50,22 @@ impl MainUiState {
         while !self.exit {
             let latest_steps = input.get_steps();
             self.prog_states.extend(latest_steps);
+            if let Some(term) = input.get_output() {
+                if let Some(existing) = self.terminal_text.last_mut() {
+                    if existing.ends_with('\n') {
+                        self.terminal_text.push(term);
+                    } else {
+                        existing.push_str(&term);
+                        if existing.contains('\n') {
+                            let splitpoint = existing.rfind('\n').expect("impossible");
+                            let remainder = existing.split_off(splitpoint+1);
+                            self.terminal_text.push(remainder);
+                        }
+                    }
+                } else {
+                    self.terminal_text.push(term);
+                }
+            }
             terminal.draw(|frame| self.render_frame(frame))?;
             self.handle_input()?;
         }
@@ -61,14 +79,28 @@ impl MainUiState {
             .split(frame.size());
         let mid_layout = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints(vec![Constraint::Fill(1),Constraint::Length(16)])
+            .constraints(vec![Constraint::Fill(1),Constraint::Length(21)])
             .split(root_layout[1]);
         let def = DEFAULT_STATE;
         let current_state = self.prog_states.back().unwrap_or(&def);
 
+        let instruction_lines:Vec<Line> = self.prog_states.iter()
+            .rev()
+            .take(mid_layout[1].height as usize)
+            .rev()
+            .map(|state| Line::from(&state.instruction[..]))
+            .collect();
+
+        let terminal_lines:Vec<Line> = self.terminal_text.iter()
+            .rev()
+            .take(mid_layout[0].height as usize)
+            .rev()
+            .map(|text| Line::from(&text[..]))
+            .collect();
+
         frame.render_widget(&current_state.registers, root_layout[0]);
-        frame.render_widget(Paragraph::new("Terminal goes here.").block(Block::default().title("Terminal").borders(Borders::ALL).border_set(border::THICK)),mid_layout[0]);
-        frame.render_widget(Paragraph::new("Executed instructions go here").block(Block::default().title("Instructions").borders(Borders::ALL).border_set(border::THICK)), mid_layout[1]);
+        frame.render_widget(Paragraph::new(terminal_lines).block(Block::default().title("Terminal").borders(Borders::ALL).border_set(border::THICK)),mid_layout[0]);
+        frame.render_widget(Paragraph::new(instruction_lines).block(Block::default().title("Instructions").borders(Borders::ALL).border_set(border::THICK)), mid_layout[1]);
         frame.render_widget(self, root_layout[2]);
     }
 
