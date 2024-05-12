@@ -30,8 +30,17 @@ pub fn stop_ui() -> io::Result<()> {
 pub struct MainUiState {
     prog_states:Box<CircularBuffer<1024,ProgramStep>>,
     terminal_text:Vec<String>,
-
+    ui_mode:UiMode,
+    input_buffer:Option<String>,
     exit:bool
+}
+
+#[derive(Debug,Default,PartialEq)]
+enum UiMode {
+    #[default]
+    Normal,
+    WaitingForInput,
+    InputReady
 }
 
 const DEFAULT_STATE:ProgramStep = ProgramStep::const_default();
@@ -42,32 +51,54 @@ impl MainUiState {
         Self { 
             prog_states: CircularBuffer::<1024,ProgramStep>::boxed(), 
             terminal_text: Vec::new(),
+            ui_mode: UiMode::Normal,
+            input_buffer: None,
             exit: false 
         }
     }
 
     pub fn main_loop(&mut self, terminal:&mut Tui, input:&mut impl UiInterface) -> io::Result<()> {
         while !self.exit {
-            let latest_steps = input.get_steps();
-            self.prog_states.extend(latest_steps);
-            if let Some(term) = input.get_output() {
-                if let Some(existing) = self.terminal_text.last_mut() {
-                    if existing.ends_with('\n') {
-                        self.terminal_text.push(term);
-                    } else {
-                        existing.push_str(&term);
-                        if existing.contains('\n') {
-                            let splitpoint = existing.rfind('\n').expect("impossible");
-                            let remainder = existing.split_off(splitpoint+1);
-                            self.terminal_text.push(remainder);
+
+            if input.need_input() && self.ui_mode == UiMode::Normal{
+                self.ui_mode = UiMode::WaitingForInput;
+                self.input_buffer = Some(String::with_capacity(32));
+            } else if self.ui_mode == UiMode::Normal {
+                let latest_steps = input.get_steps();
+                self.prog_states.extend(latest_steps);
+                if let Some(term) = input.get_output() {
+                    if let Some(existing) = self.terminal_text.last_mut() {
+                        if existing.ends_with('\n') {
+                            self.terminal_text.push(term);
+                        } else {
+                            existing.push_str(&term);
+                            if existing.contains('\n') {
+                                let splitpoint = existing.rfind('\n').expect("impossible");
+                                let remainder = existing.split_off(splitpoint+1);
+                                self.terminal_text.push(remainder);
+                            }
                         }
+                    } else {
+                        self.terminal_text.push(term);
                     }
-                } else {
-                    self.terminal_text.push(term);
                 }
             }
-            terminal.draw(|frame| self.render_frame(frame))?;
+            
+            if self.ui_mode == UiMode::InputReady {
+                if let Some(to_send) = &self.input_buffer {
+                    let terminal_text = format!("> {to_send}\n");
+                    self.terminal_text.push(terminal_text);
+                    input.send_input(to_send)?;
+
+                } else {
+                    panic!("Could not send; buffer is missing.");
+                }
+                self.input_buffer = None;
+                self.ui_mode = UiMode::Normal;
+            }
+
             self.handle_input()?;
+            terminal.draw(|frame| self.render_frame(frame))?;
         }
         Ok(())
     }
@@ -107,11 +138,31 @@ impl MainUiState {
     fn handle_input(&mut self) -> io::Result<()> {
         if event::poll(POLL_TIME)? {
             if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => {self.exit = true},
-                        _ => {}
-                    }
+                match self.ui_mode {
+                    UiMode::Normal => {
+                        if key.kind == KeyEventKind::Press {
+                            match key.code {
+                                KeyCode::Char('q') | KeyCode::Esc => {self.exit = true},
+                                _ => {}
+                            }
+                        }
+                    },
+                    UiMode::WaitingForInput => {
+                        //Handle specifics for writing input.
+                        let buffer = self.input_buffer.as_mut().expect("Buffer was not initialized.");
+                        if key.kind == KeyEventKind::Press {
+                            match key.code {
+                                KeyCode::Enter => {
+                                    self.ui_mode = UiMode::InputReady;
+                                },
+                                KeyCode::Char(letter) => {
+                                    buffer.push(letter);
+                                },
+                                _ => ()
+                            }
+                        }
+                    },
+                    UiMode::InputReady => {}
                 }
                 
             }
@@ -139,16 +190,43 @@ impl Widget for &MainUiState {
     where
         Self: Sized {
             //Set up the layout.
-
-            let footer = Title::from(Line::from(vec![
-                "press ".into(),
-                "space".bold().blue(),
-                " to start/stop the VM".into()
-            ]));
-            let _block = Block::default()
-                .title(footer.alignment(Alignment::Center).position(Position::Bottom))
-                .borders(Borders::ALL)
-                .border_set(border::THICK)
-                .render(area,buf);
+            match self.ui_mode {
+                UiMode::Normal => {
+                    //Show instructions.
+                    let footer = Title::from(Line::from(vec![
+                        "press ".into(),
+                        "space".bold().blue(),
+                        " to start/stop the VM".into()
+                    ]));
+                    let _block = Block::default()
+                        .title(footer.alignment(Alignment::Center).position(Position::Bottom))
+                        .borders(Borders::ALL)
+                        .border_set(border::THICK)
+                        .render(area,buf);
+                },
+                UiMode::WaitingForInput => {
+                    //Show input field.
+                    let buff = self.input_buffer.as_ref().expect("Message buffer missing.").clone();
+                    let footer = Title::from(Line::from(vec![
+                        "> ".into(),
+                        buff.green(),
+                        "█".white()
+                    ]));
+                    let _block = Block::default()
+                        .title(footer.alignment(Alignment::Left).position(Position::Top))
+                        .borders(Borders::ALL)
+                        .border_set(border::THICK)
+                        .render(area, buf);
+                },
+                UiMode::InputReady => {
+                    //Show 'please stand by' message, until input is sent.
+                    let footer = Title::from("Sending input, stand by.");
+                    let _block = Block::default()
+                        .title(footer.alignment(Alignment::Center).position(Position::Top))
+                        .borders(Borders::ALL)
+                        .border_set(border::THICK)
+                        .render(area, buf);
+                }
+            }
     }
 }

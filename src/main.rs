@@ -41,6 +41,10 @@ impl UiInterface for TestUiInterface {
     }
 
     fn get_steps(&mut self) -> Vec<interface::ProgramStep> {
+        if self.need_input() {
+            return Vec::new();
+        }
+
         self.step += 1;
         if self.step > 15 {
             self.step = 0;
@@ -57,6 +61,8 @@ impl UiInterface for TestUiInterface {
     }
 
     fn send_input(&mut self, _:&str) -> std::io::Result<()> {
+        println!("Input");
+        self.counter += 1;
         std::io::Result::Ok(())
     }
 
@@ -65,7 +71,7 @@ impl UiInterface for TestUiInterface {
     }
 
     fn need_input(&self) -> bool {
-        false
+        self.counter % 30 == 0
     }
 }
 
