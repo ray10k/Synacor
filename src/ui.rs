@@ -10,7 +10,7 @@ use ratatui::widgets::{block::*,*};
 use crossterm::{execute, terminal::*};
 use circular_buffer::CircularBuffer;
 
-use crate::interface::{UiInterface,ProgramStep,RegisterState};
+use crate::interface::{UiInterface,ProgramStep,RegisterState,RuntimeState};
 
 pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 
@@ -40,7 +40,11 @@ enum UiMode {
     #[default]
     Normal,
     WaitingForInput,
-    InputReady
+    WaitingForAddress,
+    WaitingForCount,
+    InputReady,
+    Command,
+    Paused,
 }
 
 const DEFAULT_STATE:ProgramStep = ProgramStep::const_default();
@@ -110,7 +114,7 @@ impl MainUiState {
             .split(frame.size());
         let mid_layout = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints(vec![Constraint::Fill(1),Constraint::Length(21)])
+            .constraints(vec![Constraint::Min(47),Constraint::Length(28)])
             .split(root_layout[1]);
         let def = DEFAULT_STATE;
         let current_state = self.prog_states.back().unwrap_or(&def);
@@ -135,14 +139,14 @@ impl MainUiState {
         frame.render_widget(self, root_layout[2]);
     }
 
-    fn handle_input(&mut self) -> io::Result<()> {
+    fn handle_input(&mut self) -> io::Result<Option<RuntimeState>> {
         if event::poll(POLL_TIME)? {
             if let Event::Key(key) = event::read()? {
                 match self.ui_mode {
                     UiMode::Normal => {
                         if key.kind == KeyEventKind::Press {
                             match key.code {
-                                KeyCode::Char('q') | KeyCode::Esc => {self.exit = true},
+                                KeyCode::Esc => {self.ui_mode = UiMode::Command},
                                 _ => {}
                             }
                         }
@@ -162,13 +166,49 @@ impl MainUiState {
                             }
                         }
                     },
-                    UiMode::InputReady => {}
+                    UiMode::Command => {
+                        if key.kind == KeyEventKind::Press {
+                            match key.code {
+                                KeyCode::Char('q') => {self.exit = true;},
+                                KeyCode::Char('s') => {return Ok(Some(RuntimeState::SingleStep))},
+                                KeyCode::Char('a') => {self.ui_mode = UiMode::WaitingForAddress;
+                                    self.input_buffer = Option::Some(String::with_capacity(5))},
+                                KeyCode::Char('n') => {self.ui_mode = UiMode::WaitingForCount;
+                                    self.input_buffer = Option::Some(String::with_capacity(6))},
+                                KeyCode::Esc => {self.ui_mode = UiMode::Normal;}
+                                _ => {}//By default, ignore all unknown keypresses.
+                            }
+                        }
+                    }
+                    UiMode::WaitingForAddress => {
+                        todo!("Handle address input.");
+                    }
+                    UiMode::WaitingForCount => {
+                        if key.kind == KeyEventKind::Press {
+                            if let KeyCode::Char(ch) = key.code {
+                                if ch.is_digit(10) {
+                                    self.input_buffer
+                                        .as_mut()
+                                        .expect("Buffer not initialized.")
+                                        .push(ch);
+                                }
+                            } else if let KeyCode::Enter = key.code {
+                                todo!("finalize count input.");
+                            }
+                        }
+                    }
+                    UiMode::InputReady | 
+                    UiMode::Paused => {
+                        if key.kind == KeyEventKind::Press && key.code == KeyCode::Esc {
+                            self.ui_mode = UiMode::Command;
+                        }
+                    },
                 }
                 
             }
         }
         
-        Ok(())
+        Ok(None)
     }
 }
 
@@ -227,6 +267,46 @@ impl Widget for &MainUiState {
                         .border_set(border::THICK)
                         .render(area, buf);
                 }
+                UiMode::Command => {
+                    //Show command options.
+                    let title = Title::from("Command mode");
+                    let body = Line::from(vec![
+                        "(".white(),
+                        "esc".blue().on_white(),
+                        ") exit command mode|".white(),
+                        "S".blue().on_white(),
+                        "ingle step|".white(),
+                        "Run until ".white(),
+                        "a".blue().on_white(),
+                        "ddress|".white(),
+                        "Run for ".white(),
+                        "N".blue().on_white(),
+                        " steps|".white(),
+                        "Q".blue().on_white(),
+                        "uit".white()
+                    ]);
+                    Paragraph::new(body)
+                        .block(Block::default()
+                            .title(title)
+                            .borders(Borders::ALL)
+                            .border_set(border::THICK))
+                        .render(area, buf);
+                }
+                UiMode::Paused => {
+                    let title = Title::from("Execution paused");
+                    let _block = Block::default()
+                        .title(title)
+                        .borders(Borders::ALL)
+                        .border_set(border::THICK)
+                        .render(area, buf);
+                },
+                UiMode::WaitingForAddress => {
+                    todo!("Implement waiting for address.");
+                },
+                UiMode::WaitingForCount => {
+                    todo!("Implement waiting for count.");
+                }
+
             }
     }
 }

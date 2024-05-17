@@ -1,4 +1,4 @@
-use std::rc::Rc;
+
 
 pub enum RuntimeState {
     Run,
@@ -6,6 +6,7 @@ pub enum RuntimeState {
     SingleStep,
     RunForSteps(usize),
     RunUntilAddress(u16),
+    Terminate,
 }
 
 #[derive(Debug, Clone)]
