@@ -73,6 +73,10 @@ impl UiInterface for TestUiInterface {
     fn need_input(&self) -> bool {
         self.counter % 30 == 0
     }
+
+    fn is_finished(&self) -> bool {
+        false
+    }
 }
 
 /*fn main() {

@@ -31,7 +31,7 @@ pub struct MainUiState {
     prog_states:Box<CircularBuffer<1024,ProgramStep>>,
     terminal_text:Vec<String>,
     ui_mode:UiMode,
-    input_buffer:Option<String>,
+    input_buffer:String,
     exit:bool
 }
 
@@ -43,6 +43,8 @@ enum UiMode {
     WaitingForAddress,
     WaitingForCount,
     InputReady,
+    AddressReady,
+    CountReady,
     Command,
     Paused,
 }
@@ -56,17 +58,18 @@ impl MainUiState {
             prog_states: CircularBuffer::<1024,ProgramStep>::boxed(), 
             terminal_text: Vec::new(),
             ui_mode: UiMode::Normal,
-            input_buffer: None,
+            input_buffer: String::new(),
             exit: false 
         }
     }
 
     pub fn main_loop(&mut self, terminal:&mut Tui, input:&mut impl UiInterface) -> io::Result<()> {
         while !self.exit {
-
-            if input.need_input() && self.ui_mode == UiMode::Normal{
+            if input.is_finished() {
+                self.ui_mode = UiMode::Paused;
+            } else if input.need_input() && self.ui_mode == UiMode::Normal{
                 self.ui_mode = UiMode::WaitingForInput;
-                self.input_buffer = Some(String::with_capacity(32));
+                self.input_buffer = String::with_capacity(32);
             } else if self.ui_mode == UiMode::Normal {
                 let latest_steps = input.get_steps();
                 self.prog_states.extend(latest_steps);
@@ -87,18 +90,27 @@ impl MainUiState {
                     }
                 }
             }
-            
-            if self.ui_mode == UiMode::InputReady {
-                if let Some(to_send) = &self.input_buffer {
-                    let terminal_text = format!("> {to_send}\n");
-                    self.terminal_text.push(terminal_text);
-                    input.send_input(to_send)?;
 
-                } else {
-                    panic!("Could not send; buffer is missing.");
-                }
-                self.input_buffer = None;
-                self.ui_mode = UiMode::Normal;
+            match self.ui_mode {
+                UiMode::InputReady => {
+                    let terminal_text = format!("> {}\n",&self.input_buffer[..]);
+                    self.terminal_text.push(terminal_text);
+                    input.send_input(&self.input_buffer)?;
+                    self.ui_mode = UiMode::Normal;
+                },
+                UiMode::AddressReady => {
+                    if let Ok(address) = self.input_buffer.parse::<u16>() {
+                        input.send_state(RuntimeState::RunUntilAddress(address)).expect("Could not send address to VM");
+                    }
+                    self.ui_mode = UiMode::Normal;
+                },
+                UiMode::CountReady => {
+                    if let Ok(count) = self.input_buffer.parse::<usize>(){
+                        input.send_state(RuntimeState::RunForSteps(count)).expect("Could not send step count to VM");
+                    }
+                    self.ui_mode = UiMode::Normal;
+                },
+                _ => ()
             }
 
             self.handle_input()?;
@@ -153,14 +165,13 @@ impl MainUiState {
                     },
                     UiMode::WaitingForInput => {
                         //Handle specifics for writing input.
-                        let buffer = self.input_buffer.as_mut().expect("Buffer was not initialized.");
                         if key.kind == KeyEventKind::Press {
                             match key.code {
                                 KeyCode::Enter => {
                                     self.ui_mode = UiMode::InputReady;
                                 },
                                 KeyCode::Char(letter) => {
-                                    buffer.push(letter);
+                                    self.input_buffer.push(letter);
                                 },
                                 _ => ()
                             }
@@ -172,32 +183,47 @@ impl MainUiState {
                                 KeyCode::Char('q') => {self.exit = true;},
                                 KeyCode::Char('s') => {return Ok(Some(RuntimeState::SingleStep))},
                                 KeyCode::Char('a') => {self.ui_mode = UiMode::WaitingForAddress;
-                                    self.input_buffer = Option::Some(String::with_capacity(5))},
+                                    self.input_buffer = String::with_capacity(5)},
                                 KeyCode::Char('n') => {self.ui_mode = UiMode::WaitingForCount;
-                                    self.input_buffer = Option::Some(String::with_capacity(6))},
+                                    self.input_buffer = String::with_capacity(6)},
                                 KeyCode::Esc => {self.ui_mode = UiMode::Normal;}
                                 _ => {}//By default, ignore all unknown keypresses.
                             }
                         }
                     }
                     UiMode::WaitingForAddress => {
-                        todo!("Handle address input.");
+                        if key.kind == KeyEventKind::Press {
+                            if let KeyCode::Char(ch) = key.code {
+                                if ch.is_digit(16) { //hexadecimal address entry!
+                                    self.input_buffer.push(ch);
+                                }
+                            } else if let KeyCode::Enter = key.code {
+                                if self.input_buffer.len() > 0 {
+                                    self.ui_mode = UiMode::AddressReady;
+                                } else {
+                                    self.ui_mode = UiMode::Normal;
+                                }
+                            }
+                        }
                     }
                     UiMode::WaitingForCount => {
                         if key.kind == KeyEventKind::Press {
                             if let KeyCode::Char(ch) = key.code {
                                 if ch.is_digit(10) {
-                                    self.input_buffer
-                                        .as_mut()
-                                        .expect("Buffer not initialized.")
-                                        .push(ch);
+                                    self.input_buffer.push(ch);
                                 }
                             } else if let KeyCode::Enter = key.code {
-                                todo!("finalize count input.");
+                                if self.input_buffer.len() > 0 {
+                                    self.ui_mode = UiMode::CountReady;
+                                } else {
+                                    self.ui_mode = UiMode::Normal;
+                                }
                             }
                         }
                     }
                     UiMode::InputReady | 
+                    UiMode::AddressReady |
+                    UiMode::CountReady |
                     UiMode::Paused => {
                         if key.kind == KeyEventKind::Press && key.code == KeyCode::Esc {
                             self.ui_mode = UiMode::Command;
@@ -230,47 +256,38 @@ impl Widget for &MainUiState {
     where
         Self: Sized {
             //Set up the layout.
+            let block_title:Title;
+            let mut block_content:Line = Line::raw("");
             match self.ui_mode {
                 UiMode::Normal => {
                     //Show instructions.
-                    let footer = Title::from(Line::from(vec![
+                    block_title = Title::from(Line::from(vec![
                         "press ".into(),
-                        "space".bold().blue(),
-                        " to start/stop the VM".into()
+                        "esc".bold().blue(),
+                        " to enter Command Mode".into()
                     ]));
-                    let _block = Block::default()
-                        .title(footer.alignment(Alignment::Center).position(Position::Bottom))
-                        .borders(Borders::ALL)
-                        .border_set(border::THICK)
-                        .render(area,buf);
                 },
-                UiMode::WaitingForInput => {
+                UiMode::WaitingForInput |
+                UiMode::WaitingForCount |
+                UiMode::WaitingForAddress=> {
                     //Show input field.
-                    let buff = self.input_buffer.as_ref().expect("Message buffer missing.").clone();
-                    let footer = Title::from(Line::from(vec![
+                    let buff = &self.input_buffer[..];
+                    block_title = Title::from(Line::from(vec![
                         "> ".into(),
                         buff.green(),
                         "█".white()
                     ]));
-                    let _block = Block::default()
-                        .title(footer.alignment(Alignment::Left).position(Position::Top))
-                        .borders(Borders::ALL)
-                        .border_set(border::THICK)
-                        .render(area, buf);
                 },
-                UiMode::InputReady => {
+                UiMode::InputReady |
+                UiMode::CountReady |
+                UiMode::AddressReady => {
                     //Show 'please stand by' message, until input is sent.
-                    let footer = Title::from("Sending input, stand by.");
-                    let _block = Block::default()
-                        .title(footer.alignment(Alignment::Center).position(Position::Top))
-                        .borders(Borders::ALL)
-                        .border_set(border::THICK)
-                        .render(area, buf);
+                    block_title = Title::from("Sending input, stand by.");
                 }
                 UiMode::Command => {
                     //Show command options.
-                    let title = Title::from("Command mode");
-                    let body = Line::from(vec![
+                    block_title = Title::from("Command mode");
+                    block_content = Line::from(vec![
                         "(".white(),
                         "esc".blue().on_white(),
                         ") exit command mode|".white(),
@@ -285,28 +302,17 @@ impl Widget for &MainUiState {
                         "Q".blue().on_white(),
                         "uit".white()
                     ]);
-                    Paragraph::new(body)
-                        .block(Block::default()
-                            .title(title)
-                            .borders(Borders::ALL)
-                            .border_set(border::THICK))
-                        .render(area, buf);
                 }
                 UiMode::Paused => {
-                    let title = Title::from("Execution paused");
-                    let _block = Block::default()
-                        .title(title)
-                        .borders(Borders::ALL)
-                        .border_set(border::THICK)
-                        .render(area, buf);
+                    block_title = Title::from("Execution paused");
                 },
-                UiMode::WaitingForAddress => {
-                    todo!("Implement waiting for address.");
-                },
-                UiMode::WaitingForCount => {
-                    todo!("Implement waiting for count.");
-                }
 
             }
+            Paragraph::new(block_content)
+                .block(Block::default()
+                    .title(block_title)
+                    .borders(Borders::ALL)
+                    .border_set(border::THICK))
+            .render(area, buf);
     }
 }

@@ -3,17 +3,18 @@ use std::fs::File;
 use std::convert::From;
 use std::fmt::{Display,Result as fmtResult};
 use itertools::Itertools;
+use crate::interface::{VmInterface,RuntimeState,RegisterState,ProgramStep};
 
 pub struct VirtualMachine {
     memory:Vec<u16>,
     registers:[u16;8],
     stack:Vec<usize>,
-    program_counter:usize
+    program_counter:usize,
+    input_buffer:String,
 }
 
 pub struct VirtualMachineStep<'a> {
     machine:&'a mut VirtualMachine,
-    /*verbose:bool,*/
 }
 
 pub enum ParsedValue {
@@ -32,7 +33,7 @@ impl From<u16> for ParsedValue{
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug,PartialEq)]
 pub enum Operation {
     Halt,
     Set,
@@ -140,6 +141,19 @@ pub enum RuntimeError {
     ErrStackEmpty
 }
 
+impl Display for RuntimeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmtResult {
+        let message = match self {
+            RuntimeError::ErrFinished => String::from("Program already finished."),
+            RuntimeError::ErrUnknownOperation(x) => format!("Unknown operation with opcode {x:x}."),
+            RuntimeError::ErrUnknownOperand(x) => format!("Unknown operand with value {x:x}."),
+            RuntimeError::ErrRegisterExpected => String::from("Expected a register, got a literal value."),
+            RuntimeError::ErrStackEmpty => String::from("POP instruction executed with empty stack."),
+        };
+        write!(f,"{message}" )
+    }
+}
+
 #[derive(Default,Debug)]
 pub struct ProgramState {
     pub registers:[u16;8],
@@ -166,7 +180,8 @@ impl VirtualMachine {
             memory : data_buffer,
             registers : [0;8],
             stack : Vec::<usize>::new(),
-            program_counter : 0
+            program_counter : 0,
+            input_buffer : String::new()
         })
     }
 
@@ -175,7 +190,8 @@ impl VirtualMachine {
             memory : Vec::from_iter(input_sequence.iter().map(|x|*x)),
             registers : [0;8],
             stack : Vec::<usize>::new(),
-            program_counter : 0
+            program_counter : 0,
+            input_buffer : String::new()
         }
     }
 
@@ -391,10 +407,8 @@ impl VirtualMachine {
                         0xff as usize
                     }
                 };
-                let mut buffer = String::new();
-                let res = stdin().read_line(&mut buffer);
-                if let Ok(_) = res {
-                    let last_char = buffer.trim() //Take the user's input, and trim off the leading/trailing whitespace or linebreaks.
+                if self.input_buffer.len() > 0 {
+                    let last_char = self.input_buffer.trim() //Take the user's input, and trim off the leading/trailing whitespace or linebreaks.
                     .chars() //Get an iterator over the characters in the resulting substring.
                     .rev() //Reverse the character-iterator. This way, the last characters are now at the start.
                     .next() //Take one character from the string; should be the last before the linebreak.
@@ -405,6 +419,11 @@ impl VirtualMachine {
                         //No idea how to handle the case where a non-ascii character got input, so... wild guessing time.
                         self.registers[register_number] = 0x7fff
                     }
+                    //The buffer has been used, clear it.
+                    self.input_buffer.clear();
+                } else {
+                    //Stall the program if there is no input in the buffer.
+                    self.program_counter = old_count;
                 }
             },
             Operation::Noop => (),
@@ -413,10 +432,22 @@ impl VirtualMachine {
         Ok(current_instruction)
     }
 
-    pub fn run_program(&mut self, _verbose:bool) -> VirtualMachineStep {
-        VirtualMachineStep{
-            machine:self,
-            /*verbose:verbose*/
+    pub fn run_program(&mut self, output:&mut impl VmInterface) {
+        let mut latest = Operation::Noop;
+        loop {
+            if latest == Operation::In {
+                //Pull input from interface, and put in buffer.
+                self.input_buffer.push_str(&output.read_input()[..]);
+            } 
+
+            match self.operation() {
+                Ok(inst) => {
+                    latest = inst;
+                },
+                Err(e) => {
+                    output.runtime_err(format!("{e}"));
+                },
+            }
         }
     }
 
