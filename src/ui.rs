@@ -1,5 +1,6 @@
 use std::{
-    io::{self, stdout, Stdout},
+    io::{self, stdout, Stdout}, 
+    panic::{take_hook,set_hook}, 
     time::Duration};
 
 use crossterm::event::{KeyCode, KeyEventKind,self,Event};
@@ -15,6 +16,7 @@ use crate::interface::{UiInterface,ProgramStep,RegisterState,RuntimeState};
 pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 
 pub fn start_ui() -> io::Result<Tui> {
+    setup_panic_hook();
     execute!(stdout(),EnterAlternateScreen)?;
     enable_raw_mode()?;
     Terminal::new(CrosstermBackend::new(stdout()))
@@ -24,6 +26,15 @@ pub fn stop_ui() -> io::Result<()> {
     execute!(stdout(),LeaveAlternateScreen)?;
     disable_raw_mode()?;
     Ok(())
+}
+
+pub fn setup_panic_hook() {
+    let original_hook = take_hook();
+    set_hook(Box::new(move |panic_info| {
+        // intentionally ignore errors here since we're already in a panic
+        let _ = stop_ui();
+        original_hook(panic_info);
+    }));
 }
 
 #[derive(Debug,Default)]
@@ -110,7 +121,7 @@ impl MainUiState {
                     }
                     self.ui_mode = UiMode::Normal;
                 },
-                _ => ()
+                _ => todo!()
             }
 
             self.handle_input()?;
