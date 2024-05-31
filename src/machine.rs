@@ -121,7 +121,7 @@ impl Display for Operation {
 }
 
 impl Operation {
-    pub fn operands(&self) -> usize {
+    pub fn operands(&self) -> u16 {
         match *self {
             Self::Halt | Self::Ret | Self::Noop => 0,
             Self::Push | Self::Pop | Self::Jmp | Self::Call | Self::Out | Self::In => 1,
@@ -208,7 +208,7 @@ impl VirtualMachine {
         let current_instruction = Operation::from(self.memory[self.program_counter]);
         let old_count = self.program_counter;
         //decode
-        let argcount = current_instruction.operands();
+        let argcount = current_instruction.operands() as usize;
         let mut operands:Vec<ParsedValue> = Vec::with_capacity(argcount);
         for x in old_count+1..old_count+1+argcount {
             let pv = ParsedValue::from(self.memory[x]);
@@ -432,17 +432,59 @@ impl VirtualMachine {
         Ok(current_instruction)
     }
 
+    pub fn register_snapshot(&self) -> RegisterState {
+        RegisterState { 
+            registers: self.registers.clone(), 
+            stack_depth: self.stack.len(), 
+            program_counter: (self.program_counter & 0xffff) as u16
+        }
+    }
+
+    pub fn program_iter(&mut self) -> VirtualMachineStep {
+        VirtualMachineStep { machine: self }
+    }
+
     pub fn run_program(&mut self, output:&mut impl VmInterface) {
+        use RuntimeState::*;
         let mut latest = Operation::Noop;
+        let mut run_state = Pause;
         loop {
+            run_state = output.read_state(run_state == Pause)
+                .unwrap_or(run_state);
+            match run_state {
+                // Default state; just keep going.
+                Run => (), 
+                // Immediately go to the next iteration.
+                Pause => continue, 
+                // Perform one step, then pause.
+                SingleStep | RunForSteps(1) => {run_state = Pause}, 
+                // Subtract one step from the remaining count.
+                RunForSteps(steps) => run_state = RunForSteps(steps-1), 
+                // Check if the address is part of the instruction about to be executed; pause after if it is.
+                RunUntilAddress(addr) => {
+                    let inst_start = (self.program_counter &0xffff) as u16;
+                    let inst_end = inst_start + (Operation::from(self.memory[self.program_counter]).operands());
+                    if inst_start == addr ||  (inst_start < addr && addr <= inst_end) {
+                        run_state = Pause;
+                    }
+                },
+                // quit immediately.
+                Terminate => break,
+            }
+            
             if latest == Operation::In {
                 //Pull input from interface, and put in buffer.
                 self.input_buffer.push_str(&output.read_input()[..]);
             } 
 
+
             match self.operation() {
                 Ok(inst) => {
                     latest = inst;
+                    let _ = output.write_step(
+                        ProgramStep::step(
+                            self.register_snapshot(), 
+                            latest.to_string()));
                 },
                 Err(e) => {
                     output.runtime_err(format!("{e}"));
@@ -485,7 +527,7 @@ impl VirtualMachine {
                     }
                 )?;
             } else {
-                let wordcount = 1 + value.operands();
+                let wordcount = 1 + value.operands() as usize;
                 let raw_bytes = &self.memory[index..=(wordcount+index)];
                 let mut ascii_chars:String = String::with_capacity(8);
 
