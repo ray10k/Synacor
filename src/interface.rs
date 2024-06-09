@@ -46,12 +46,12 @@ impl ProgramStep {
 }
 
 pub trait UiInterface {
-    fn get_output(&mut self) -> Option<String>;
-    fn get_steps(&mut self) -> Vec<ProgramStep>;
+    fn read_output(&mut self) -> Option<String>;
+    fn read_steps(&mut self) -> Vec<ProgramStep>;
     fn need_input(&self) -> bool;
     fn is_finished(&self) -> bool;
-    fn send_input(&mut self, input:&str) -> std::io::Result<()>;
-    fn send_state(&mut self, input:RuntimeState) -> std::io::Result<()>;
+    fn write_input(&mut self, input:&str) -> std::io::Result<()>;
+    fn write_state(&mut self, input:RuntimeState) -> std::io::Result<()>;
 }
 
 pub trait VmInterface {

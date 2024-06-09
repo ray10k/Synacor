@@ -82,9 +82,9 @@ impl MainUiState {
                 self.ui_mode = UiMode::WaitingForInput;
                 self.input_buffer = String::with_capacity(32);
             } else if self.ui_mode == UiMode::Normal {
-                let latest_steps = input.get_steps();
+                let latest_steps = input.read_steps();
                 self.prog_states.extend(latest_steps);
-                if let Some(term) = input.get_output() {
+                if let Some(term) = input.read_output() {
                     if let Some(existing) = self.terminal_text.last_mut() {
                         if existing.ends_with('\n') {
                             self.terminal_text.push(term);
@@ -106,18 +106,18 @@ impl MainUiState {
                 UiMode::InputReady => {
                     let terminal_text = format!("> {}\n",&self.input_buffer[..]);
                     self.terminal_text.push(terminal_text);
-                    input.send_input(&self.input_buffer)?;
+                    input.write_input(&self.input_buffer)?;
                     self.ui_mode = UiMode::Normal;
                 },
                 UiMode::AddressReady => {
                     if let Ok(address) = self.input_buffer.parse::<u16>() {
-                        input.send_state(RuntimeState::RunUntilAddress(address)).expect("Could not send address to VM");
+                        input.write_state(RuntimeState::RunUntilAddress(address)).expect("Could not send address to VM");
                     }
                     self.ui_mode = UiMode::Normal;
                 },
                 UiMode::CountReady => {
                     if let Ok(count) = self.input_buffer.parse::<usize>(){
-                        input.send_state(RuntimeState::RunForSteps(count)).expect("Could not send step count to VM");
+                        input.write_state(RuntimeState::RunForSteps(count)).expect("Could not send step count to VM");
                     }
                     self.ui_mode = UiMode::Normal;
                 },

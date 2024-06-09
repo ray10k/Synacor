@@ -4,14 +4,14 @@ use std::rc::Rc;
 
 use interface::ProgramStep;
 
-use crate::interface::RegisterState;
+use crate::interface::*;
 use crate::machine::VirtualMachine;
-use crate::interface::UiInterface;
+use crate::interface::{UiInterface,VmInterface};
 
 mod machine;
 mod ui;
 mod interface;
-
+mod thread_interface;
 
 fn main()->io::Result<()>{
     let mut term = ui::start_ui()?;
@@ -28,7 +28,7 @@ struct TestUiInterface {
 }
 
 impl UiInterface for TestUiInterface {
-    fn get_output(&mut self) -> Option<String> {
+    fn read_output(&mut self) -> Option<String> {
         if self.step == 0 {
             Some(String::from("Hello world!"))
         } else if self.counter % 3 == 0 {
@@ -40,7 +40,7 @@ impl UiInterface for TestUiInterface {
         }
     }
 
-    fn get_steps(&mut self) -> Vec<interface::ProgramStep> {
+    fn read_steps(&mut self) -> Vec<interface::ProgramStep> {
         if self.need_input() {
             return Vec::new();
         }
@@ -60,13 +60,13 @@ impl UiInterface for TestUiInterface {
         };self.step as usize]
     }
 
-    fn send_input(&mut self, _:&str) -> std::io::Result<()> {
+    fn write_input(&mut self, _:&str) -> std::io::Result<()> {
         println!("Input");
         self.counter += 1;
         std::io::Result::Ok(())
     }
 
-    fn send_state(&mut self, _:interface::RuntimeState) -> std::io::Result<()> {
+    fn write_state(&mut self, _:interface::RuntimeState) -> std::io::Result<()> {
         std::io::Result::Ok(())
     }
 
