@@ -203,7 +203,8 @@ impl VirtualMachine {
         }
     }
 
-    pub fn operation(&mut self) -> Result<Operation,RuntimeError> {
+    pub fn operation(&mut self) -> Result<(Operation,Option<char>),RuntimeError> {
+        let mut to_print = None;
         //fetch
         let current_instruction = Operation::from(self.memory[self.program_counter]);
         let old_count = self.program_counter;
@@ -391,8 +392,8 @@ impl VirtualMachine {
                 }
             },
             Operation::Out => {
-                let to_print:char = char::from_u32(self.dereference(&operands[0])as u32).unwrap_or('�');
-                print!("{to_print}");
+                let print_char:char = char::from_u32(self.dereference(&operands[0])as u32).unwrap_or('�');
+                to_print = Some(print_char);
             },
             Operation::In => {
                 //Assumption: Since <a> is only a single target, treat this as "read until newline, then put the last character
@@ -429,7 +430,7 @@ impl VirtualMachine {
             Operation::Noop => (),
             Operation::Error(_) => return Err(RuntimeError::ErrUnknownOperation(self.memory[old_count])),
         };
-        Ok(current_instruction)
+        Ok((current_instruction,to_print))
     }
 
     pub fn register_snapshot(&self) -> RegisterState {
@@ -479,12 +480,15 @@ impl VirtualMachine {
 
 
             match self.operation() {
-                Ok(inst) => {
+                Ok((inst,to_print)) => {
                     latest = inst;
                     let _ = output.write_step(
                         ProgramStep::step(
                             self.register_snapshot(), 
                             latest.to_string()));
+                    if let Some(to_print) = to_print {
+                        let _ = output.write_output(to_print);
+                    }
                 },
                 Err(e) => {
                     output.runtime_err(format!("{e}"));
@@ -579,7 +583,7 @@ impl Display for VirtualMachine {
 }
 
 impl<'a> Iterator for VirtualMachineStep<'a> {
-    type Item = Operation;
+    type Item = (Operation,Option<char>);
 
     fn next(&mut self) -> Option<Self::Item> {
         let res = self.machine.operation();
