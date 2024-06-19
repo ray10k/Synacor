@@ -3,48 +3,43 @@ use std::io::{Error,ErrorKind,Result as IoResult};
 
 use crate::{UiInterface,VmInterface,RuntimeState,ProgramStep};
 
-pub struct ThreadSharedInterface {
-    pub vm_interface: Arc<ThreadVmInterface>,
-    pub ui_interface: Arc<ThreadUiInterface>,
+pub fn make_interfaces() -> (ThreadUiInterface,ThreadVmInterface) {
+    let (state_out,state_in) = mpsc::channel();
+    let (input_out,input_in) = mpsc::channel();
+    let (output_out,output_in) = mpsc::channel();
+    let (steps_out,steps_in) = mpsc::channel();
+    let need_input = Arc::new(AtomicBool::new(false));
+
+    let ui_inter = ThreadUiInterface{
+        need_input : need_input.clone(),
+        state_outgoing : state_out,
+        input_outgoing : input_out,
+        output_incoming : output_in,
+        steps_incoming : steps_in
+    };
+    let vm_inter = ThreadVmInterface{
+        need_input : need_input.clone(),
+        state_incoming : state_in,
+        input_incoming : input_in,
+        output_outgoing : output_out,
+        steps_outgoing : steps_out,
+    };
+    (ui_inter,vm_inter)
 }
 
-impl ThreadSharedInterface {
-    pub fn new() -> Self {
-        let (state_out,state_in) = mpsc::channel();
-        let (input_out,input_in) = mpsc::channel();
-        let (output_out,output_in) = mpsc::channel();
-        let (steps_out,steps_in) = mpsc::channel();
-        let ui_inter = ThreadUiInterface{
-            need_input : Default::default(),
-            state_outgoing : state_out,
-            input_outgoing : input_out,
-            output_incoming : output_in,
-            steps_incoming : steps_in
-        };
-        let ui_arc = Arc::new(ui_inter);
-        let vm_inter = ThreadVmInterface{
-            ui_interface : ui_arc.clone(),
-            state_incoming : state_in,
-            input_incoming : input_in,
-            output_outgoing : output_out,
-            steps_outgoing : steps_out,
-        };
-        Self{vm_interface:Arc::new(vm_inter), ui_interface:ui_arc}
-    }
-}
 
-struct ThreadUiInterface {
+pub struct ThreadUiInterface {
     /* tbd */
-    need_input:AtomicBool,
+    need_input:Arc<AtomicBool>,
     state_outgoing:Sender<RuntimeState>,
     input_outgoing:Sender<String>,
     output_incoming:Receiver<char>,
     steps_incoming:Receiver<ProgramStep>,
 }
 
-struct ThreadVmInterface {
+pub struct ThreadVmInterface {
     /* tbd */
-    ui_interface: Arc<ThreadUiInterface>,
+    need_input: Arc<AtomicBool>,
     state_incoming:Receiver<RuntimeState>,
     input_incoming:Receiver<String>,
     output_outgoing:Sender<char>,
@@ -96,22 +91,48 @@ impl UiInterface for ThreadUiInterface {
 
 impl VmInterface for ThreadVmInterface {
     fn write_output(&mut self, c:char) -> std::io::Result<()> {
-        todo!()
+        match self.output_outgoing.send(c){
+            Ok(_) => Ok(()),
+            Err(e) => Err(Error::new(ErrorKind::Other, e)),
+        }
     }
 
     fn write_step(&mut self, step:ProgramStep) -> std::io::Result<()> {
-        todo!()
+        if step.instruction == "IN" {
+            self.need_input.swap(true, Ordering::Relaxed);
+        }
+        match self.steps_outgoing.send(step){
+            Ok(_) => Ok(()),
+            Err(e) => Err(Error::new(ErrorKind::Other, e)),
+        }
     }
 
-    fn runtime_err(&mut self, message:String) {
-        todo!()
+    fn runtime_err(&mut self, s:String) {
+        //Throwing this into the void for now.
+        drop(s);
     }
 
     fn read_input(&mut self) -> String {
-        todo!()
+        let input = self.input_incoming.recv();
+        match input {
+            Ok(s) => s,
+            Err(_) => String::from(""),
+        }
     }
 
     fn read_state(&mut self, blocking:bool) -> Option<RuntimeState> {
-        todo!()
+        if blocking {
+            match self.state_incoming.recv() {
+                Ok(s) => Some(s),
+                Err(_) => None,
+            }
+        } else {
+            //not blocking.
+            match self.state_incoming.try_recv() {
+                Ok(s) => Some(s),
+                Err(_) => None,
+            }
+        }
+        
     }
 }
