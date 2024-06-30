@@ -84,21 +84,8 @@ impl MainUiState {
             } else if self.ui_mode == UiMode::Normal {
                 let latest_steps = input.read_steps();
                 self.prog_states.extend(latest_steps);
-                if let Some(term) = input.read_output() {
-                    if let Some(existing) = self.terminal_text.last_mut() {
-                        if existing.ends_with('\n') {
-                            self.terminal_text.push(term);
-                        } else {
-                            existing.push_str(&term);
-                            if existing.contains('\n') {
-                                let splitpoint = existing.rfind('\n').expect("impossible");
-                                let remainder = existing.split_off(splitpoint+1);
-                                self.terminal_text.push(remainder);
-                            }
-                        }
-                    } else {
-                        self.terminal_text.push(term);
-                    }
+                if let Some(line) = input.read_output() {
+                    self.prep_string_input(line);
                 }
             }
 
@@ -246,6 +233,24 @@ impl MainUiState {
         }
         
         Ok(None)
+    }
+
+    fn prep_string_input(&mut self, src:String) {
+        if src.len() == 0 {
+            return
+        }
+        let mut top_line = self.terminal_text.pop().unwrap_or_default();
+        for cr in src.chars() {
+            match cr {
+                '\u{000A}' => {
+                    self.terminal_text.push(top_line);
+                    top_line = String::with_capacity(32);
+                },
+                any => {
+                    top_line.push(any);
+                }
+            }
+        }
     }
 }
 

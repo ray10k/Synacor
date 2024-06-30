@@ -490,9 +490,10 @@ impl VirtualMachine {
                 self.input_buffer.push_str(&output.read_input()[..]);
             } 
 
-
             match self.operation() {
                 Ok((inst,operands,to_print)) => {
+                    // Set up the "representation" of the executed instruction; a string giving
+                    // a human-readable version.
                     let mut repr = format!("{inst}");
                     latest = inst;
                     for pv in operands {
