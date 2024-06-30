@@ -69,7 +69,7 @@ impl UiInterface for ThreadUiInterface {
     }
 
     fn is_finished(&self) -> bool {
-        todo!()
+        self.need_input.load(Ordering::Relaxed)
     }
 
     fn write_input(&mut self, input:&str) -> IoResult<()> {

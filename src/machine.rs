@@ -33,6 +33,16 @@ impl From<u16> for ParsedValue{
     }
 }
 
+impl Display for ParsedValue{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmtResult {
+        match self{
+            ParsedValue::Literal(v) => write!(f,"{v}"),
+            ParsedValue::Register(v) => write!(f,"R{v}"),
+            ParsedValue::Error(v) => write!(f,"E({v})"),
+        }
+    }
+}
+
 #[derive(Debug,PartialEq)]
 pub enum Operation {
     Halt,
@@ -203,7 +213,7 @@ impl VirtualMachine {
         }
     }
 
-    pub fn operation(&mut self) -> Result<(Operation,Option<char>),RuntimeError> {
+    pub fn operation(&mut self) -> Result<(Operation,Vec<ParsedValue>,Option<char>),RuntimeError> {
         let mut to_print = None;
         //fetch
         let current_instruction = Operation::from(self.memory[self.program_counter]);
@@ -234,7 +244,9 @@ impl VirtualMachine {
                         let val_b = self.dereference(&operands[1]);
                         self.registers[r as usize] = val_b;
                     },
-                    ParsedValue::Error(_) => panic!("Should never reach!"),
+                    ParsedValue::Error(e) => {
+                        return Err(RuntimeError::ErrUnknownOperand(e));
+                    }
                 }
             },
             Operation::Push => {
@@ -430,7 +442,7 @@ impl VirtualMachine {
             Operation::Noop => (),
             Operation::Error(_) => return Err(RuntimeError::ErrUnknownOperation(self.memory[old_count])),
         };
-        Ok((current_instruction,to_print))
+        Ok((current_instruction,operands,to_print))
     }
 
     pub fn register_snapshot(&self) -> RegisterState {
@@ -480,12 +492,16 @@ impl VirtualMachine {
 
 
             match self.operation() {
-                Ok((inst,to_print)) => {
+                Ok((inst,operands,to_print)) => {
+                    let mut repr = format!("{inst}");
                     latest = inst;
+                    for pv in operands {
+                        repr.push_str(&format!(" {pv}")[..]);
+                    }
                     let _ = output.write_step(
                         ProgramStep::step(
                             self.register_snapshot(), 
-                            latest.to_string()));
+                            repr));
                     if let Some(to_print) = to_print {
                         let _ = output.write_output(to_print);
                     }
@@ -583,7 +599,7 @@ impl Display for VirtualMachine {
 }
 
 impl<'a> Iterator for VirtualMachineStep<'a> {
-    type Item = (Operation,Option<char>);
+    type Item = (Operation,Vec<ParsedValue>,Option<char>);
 
     fn next(&mut self) -> Option<Self::Item> {
         let res = self.machine.operation();

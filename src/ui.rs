@@ -121,7 +121,7 @@ impl MainUiState {
                     }
                     self.ui_mode = UiMode::Normal;
                 },
-                _ => todo!()
+                _ => ()
             }
 
             self.handle_input()?;
