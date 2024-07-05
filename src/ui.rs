@@ -76,17 +76,17 @@ impl MainUiState {
 
     pub fn main_loop(&mut self, terminal:&mut Tui, input:&mut impl UiInterface) -> io::Result<()> {
         while !self.exit {
+            let latest_steps = input.read_steps();
+            self.prog_states.extend(latest_steps);
+            if let Some(line) = input.read_output() {
+                self.prep_string_input(line);
+            }
+            
             if input.is_finished() {
                 self.ui_mode = UiMode::Paused;
             } else if input.need_input() && self.ui_mode == UiMode::Normal{
                 self.ui_mode = UiMode::WaitingForInput;
                 self.input_buffer = String::with_capacity(32);
-            } else if self.ui_mode == UiMode::Normal {
-                let latest_steps = input.read_steps();
-                self.prog_states.extend(latest_steps);
-                if let Some(line) = input.read_output() {
-                    self.prep_string_input(line);
-                }
             }
 
             match self.ui_mode {
@@ -111,7 +111,13 @@ impl MainUiState {
                 _ => ()
             }
 
-            self.handle_input()?;
+            match self.handle_input() {
+                Ok(Some(x)) => {
+                    input.write_state(x)?;
+                }
+                Ok(None) => (),
+                Err(e) => return Err(e),
+            }
             terminal.draw(|frame| self.render_frame(frame))?;
         }
         Ok(())
@@ -150,7 +156,7 @@ impl MainUiState {
     }
 
     fn handle_input(&mut self) -> io::Result<Option<RuntimeState>> {
-        if event::poll(POLL_TIME)? {
+        if let Ok(true) = event::poll(POLL_TIME) {
             if let Event::Key(key) = event::read()? {
                 match self.ui_mode {
                     UiMode::Normal => {
@@ -184,7 +190,8 @@ impl MainUiState {
                                     self.input_buffer = String::with_capacity(5)},
                                 KeyCode::Char('n') => {self.ui_mode = UiMode::WaitingForCount;
                                     self.input_buffer = String::with_capacity(6)},
-                                KeyCode::Esc => {self.ui_mode = UiMode::Normal;}
+                                KeyCode::Char('r') => {return Ok(Some(RuntimeState::Run))},
+                                KeyCode::Esc => {self.ui_mode = UiMode::Normal;},
                                 _ => {}//By default, ignore all unknown keypresses.
                             }
                         }
@@ -307,6 +314,8 @@ impl Widget for &MainUiState {
                         "(".white(),
                         "esc".blue().on_white(),
                         ") exit command mode|".white(),
+                        "R".blue().on_white(),
+                        "un in normal mode,".white(),
                         "S".blue().on_white(),
                         "ingle step|".white(),
                         "Run until ".white(),

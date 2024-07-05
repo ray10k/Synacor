@@ -53,7 +53,7 @@ impl UiInterface for ThreadUiInterface {
     fn read_output(&mut self) -> Option<String> {
         let out = self.output_incoming.try_iter();
         let buffer = String::from_iter(out);
-        if buffer.len() > 0 {
+        if !buffer.is_empty() {
             Some(buffer)
         } else {
             None

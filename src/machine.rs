@@ -464,27 +464,7 @@ impl VirtualMachine {
         loop {
             run_state = output.read_state(run_state == Pause)
                 .unwrap_or(run_state);
-            match run_state {
-                // Default state; just keep going.
-                Run => (), 
-                // Immediately go to the next iteration.
-                Pause => continue, 
-                // Perform one step, then pause.
-                SingleStep | RunForSteps(1) => {run_state = Pause}, 
-                // Subtract one step from the remaining count.
-                RunForSteps(steps) => run_state = RunForSteps(steps-1), 
-                // Check if the address is part of the instruction about to be executed; pause after if it is.
-                RunUntilAddress(addr) => {
-                    let inst_start = (self.program_counter &0xffff) as u16;
-                    let inst_end = inst_start + (Operation::from(self.memory[self.program_counter]).operands());
-                    if inst_start == addr ||  (inst_start < addr && addr <= inst_end) {
-                        run_state = Pause;
-                    }
-                },
-                // quit immediately.
-                Terminate => break,
-            }
-            
+
             if latest == Operation::In {
                 //Pull input from interface, and put in buffer.
                 self.input_buffer.push_str(&output.read_input()[..]);
@@ -511,6 +491,28 @@ impl VirtualMachine {
                     output.runtime_err(format!("{e}"));
                 },
             }
+
+            match run_state {
+                // Default state; just keep going.
+                Run => (), 
+                // Immediately go to the next iteration.
+                Pause => continue, 
+                // Perform one step, then pause.
+                SingleStep | RunForSteps(1) => {run_state = Pause; continue}, 
+                // Subtract one step from the remaining count.
+                RunForSteps(steps) => run_state = RunForSteps(steps-1), 
+                // Check if the address is part of the instruction about to be executed; pause after if it is.
+                RunUntilAddress(addr) => {
+                    let inst_start = (self.program_counter &0xffff) as u16;
+                    let inst_end = inst_start + (Operation::from(self.memory[self.program_counter]).operands());
+                    if inst_start == addr ||  (inst_start < addr && addr <= inst_end) {
+                        run_state = Pause;
+                    }
+                },
+                // quit immediately.
+                Terminate => break,
+            }
+            
         }
     }
 
