@@ -3,7 +3,7 @@ use std::{
     panic::{take_hook,set_hook}, 
     time::Duration};
 
-use crossterm::event::{KeyCode, KeyEventKind,self,Event};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::prelude::*;
 use ratatui::symbols::border;
 use ratatui::Frame;
@@ -137,14 +137,14 @@ impl MainUiState {
 
         let instruction_lines:Vec<Line> = self.prog_states.iter()
             .rev()
-            .take(mid_layout[1].height as usize)
+            .take((mid_layout[1].height - 2) as usize) // -2 to allow room for the borders around the list.
             .rev()
             .map(|state| Line::from(&state.instruction[..]))
             .collect();
 
         let terminal_lines:Vec<Line> = self.terminal_text.iter()
             .rev()
-            .take(mid_layout[0].height as usize)
+            .take((mid_layout[0].height - 2) as usize) // See above.
             .rev()
             .map(|text| Line::from(&text[..]))
             .collect();
@@ -242,16 +242,24 @@ impl MainUiState {
         Ok(None)
     }
 
+
+    ///
+    /// Write a new string to the main output window.
+    /// If the string contains one or more line-breaks (0x0A), new lines will be generated.
     fn prep_string_input(&mut self, src:String) {
         if src.len() == 0 {
             return
         }
-        let mut top_line = self.terminal_text.pop().unwrap_or_default();
+        if self.terminal_text.len() == 0 {
+            self.terminal_text.push(String::with_capacity(50));
+        }
+        let mut top_line = self.terminal_text.last_mut().expect("Should be impossible, just pushed a blank string.");
+        
         for cr in src.chars() {
             match cr {
                 '\u{000A}' => {
-                    self.terminal_text.push(top_line);
-                    top_line = String::with_capacity(32);
+                    self.terminal_text.push(String::with_capacity(50));
+                    top_line = self.terminal_text.last_mut().expect("should be impossible, just pushed a new string.");
                 },
                 any => {
                     top_line.push(any);
