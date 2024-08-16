@@ -97,7 +97,7 @@ impl MainUiState {
                     self.ui_mode = UiMode::Normal;
                 },
                 UiMode::AddressReady => {
-                    if let Ok(address) = self.input_buffer.parse::<u16>() {
+                    if let Ok(address) = u16::from_str_radix(&self.input_buffer[..], 16){
                         input.write_state(RuntimeState::RunUntilAddress(address)).expect("Could not send address to VM");
                     }
                     self.ui_mode = UiMode::Normal;

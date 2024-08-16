@@ -36,8 +36,8 @@ impl From<u16> for ParsedValue{
 impl Display for ParsedValue{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmtResult {
         match self{
-            ParsedValue::Literal(v) => write!(f,"{v}"),
-            ParsedValue::Register(v) => write!(f,"R{v}"),
+            ParsedValue::Literal(v) => write!(f,"{v:04x}"),
+            ParsedValue::Register(v) => write!(f,"  R{v}"),
             ParsedValue::Error(v) => write!(f,"E({v})"),
         }
     }
@@ -383,10 +383,10 @@ impl VirtualMachine {
             Operation::Wmem => {
                 let a = self.dereference(&operands[0]);
                 let b = self.dereference(&operands[1]);
-                if self.memory.len() < b as usize {
-                    self.memory.resize((b+1) as usize, 0);
+                if self.memory.len() < a as usize {
+                    self.memory.resize((a+1) as usize, 0);
                 }
-                self.memory[b as usize] = a;
+                self.memory[a as usize] = b;
             },
             Operation::Call => {
                 if let ParsedValue::Error(a) = operands[0] {
@@ -487,6 +487,13 @@ impl VirtualMachine {
                         let _ = output.write_output(to_print);
                     }
                 },
+                Err(RuntimeError::ErrFinished) => {
+                    let _ = output.write_step(ProgramStep::step(
+                        self.register_snapshot(),
+                        "HALT".into()
+                    ));
+                    run_state = RuntimeState::Terminate;
+                }
                 Err(e) => {
                     output.runtime_err(format!("{e}"));
                 },
