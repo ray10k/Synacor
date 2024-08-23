@@ -69,13 +69,16 @@ impl UiInterface for ThreadUiInterface {
     }
 
     fn is_finished(&self) -> bool {
-        self.need_input.load(Ordering::Relaxed)
+        //TODO: figure out a way to check if the VM program finished or not.
+        false
     }
 
     fn write_input(&mut self, input:&str) -> IoResult<()> {
         let res = self.input_outgoing.send(String::from(input));
         match res {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                self.need_input.store(false, Ordering::Relaxed);
+                Ok(())},
             Err(_) => Err(Error::new(ErrorKind::Other, "Could not send input")),
         }
     }
@@ -98,7 +101,7 @@ impl VmInterface for ThreadVmInterface {
     }
 
     fn write_step(&mut self, step:ProgramStep) -> std::io::Result<()> {
-        if step.instruction == "IN" {
+        if step.instruction.starts_with("IN") {
             self.need_input.swap(true, Ordering::Relaxed);
         }
         match self.steps_outgoing.send(step){

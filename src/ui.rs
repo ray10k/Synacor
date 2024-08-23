@@ -13,6 +13,8 @@ use circular_buffer::CircularBuffer;
 
 use crate::interface::{UiInterface,ProgramStep,RegisterState,RuntimeState};
 
+const TERMINAL_WIDTH:usize = 100;
+
 pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 
 pub fn start_ui() -> io::Result<Tui> {
@@ -82,7 +84,7 @@ impl MainUiState {
                 self.prep_string_input(line);
             }
             
-            if input.is_finished() {
+            if input.is_finished() && self.ui_mode == UiMode::Normal {
                 self.ui_mode = UiMode::Paused;
             } else if input.need_input() && self.ui_mode == UiMode::Normal{
                 self.ui_mode = UiMode::WaitingForInput;
@@ -139,7 +141,11 @@ impl MainUiState {
             .rev()
             .take((mid_layout[1].height - 2) as usize) // -2 to allow room for the borders around the list.
             .rev()
-            .map(|state| Line::from(&state.instruction[..]))
+            .map(|state| {
+                let inst_line = format!("{:01x}:{}",state.registers.program_counter);
+                
+                Line::from(&inst_line[..])
+            })
             .collect();
 
         let terminal_lines:Vec<Line> = self.terminal_text.iter()
@@ -263,6 +269,10 @@ impl MainUiState {
                 },
                 any => {
                     top_line.push(any);
+                    if top_line.len() >= TERMINAL_WIDTH {
+                        self.terminal_text.push(String::with_capacity(50));
+                        top_line = self.terminal_text.last_mut().expect("This should be unreachable.");
+                    }
                 }
             }
         }
