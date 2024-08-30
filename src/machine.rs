@@ -10,7 +10,7 @@ pub struct VirtualMachine {
     registers:[u16;8],
     stack:Vec<usize>,
     program_counter:usize,
-    input_buffer:String,
+    input_buffer:Vec<u16>,
 }
 
 pub struct VirtualMachineStep<'a> {
@@ -191,7 +191,7 @@ impl VirtualMachine {
             registers : [0;8],
             stack : Vec::<usize>::new(),
             program_counter : 0,
-            input_buffer : String::new()
+            input_buffer : Vec::with_capacity(32)
         })
     }
 
@@ -201,7 +201,7 @@ impl VirtualMachine {
             registers : [0;8],
             stack : Vec::<usize>::new(),
             program_counter : 0,
-            input_buffer : String::new()
+            input_buffer : Vec::with_capacity(32)
         }
     }
 
@@ -420,23 +420,10 @@ impl VirtualMachine {
                         0xff as usize
                     }
                 };
-                if self.input_buffer.len() > 0 {
-                    let last_char = self.input_buffer.trim() //Take the user's input, and trim off the leading/trailing whitespace or linebreaks.
-                    .chars() //Get an iterator over the characters in the resulting substring.
-                    .rev() //Reverse the character-iterator. This way, the last characters are now at the start.
-                    .next() //Take one character from the string; should be the last before the linebreak.
-                    .unwrap_or('\0'); //null-byte to indicate nothing was entered, otherwise the character itself.
-                    if last_char.is_ascii() {
-                        self.registers[register_number] = last_char as u16;
-                    } else {
-                        //No idea how to handle the case where a non-ascii character got input, so... wild guessing time.
-                        self.registers[register_number] = 0x7fff
-                    }
-                    //The buffer has been used, clear it.
-                    self.input_buffer.clear();
+                if let Some(ch) = self.input_buffer.pop() {
+                    self.registers[register_number] = ch;
                 } else {
-                    //Stall the program if there is no input in the buffer.
-                    self.program_counter = old_count;
+                    self.program_counter = old_count; //Stall the program if the buffer is empty.
                 }
             },
             Operation::Noop => (),
@@ -461,14 +448,24 @@ impl VirtualMachine {
         use RuntimeState::*;
         let mut latest = Operation::Noop;
         let mut run_state = Pause;
+        let mut delay:usize = 0;
         loop {
             run_state = output.read_state(run_state == Pause)
                 .unwrap_or(run_state);
 
             if latest == Operation::In {
-                //Pull input from interface, and put in buffer.
-                self.input_buffer.push_str(&output.read_input()[..]);
+                //Input is needed, so make sure that the buffer has the latest data.
+
+                self.input_buffer.extend(
+                    output.read_input() //Fetch the latest input (as a string)
+                    .chars() //Iterate over the characters. Remember, a Rust char is 4 bytes!
+                    .filter(|ch| ch.is_ascii()) //Keep only the characters that are ASCII characters, and silently drop the unicode-only characters.
+                    .map(|ch| (ch as u64 & 0x7f) as u16) //Since the VM uses 16-bit words (kind of), keep the low 2 bytes and discard the high 2 bytes.
+                    .rev()//Reverse the order of the characters, so the last character entered ends up at the bottom of the stack.
+                ) 
             } 
+
+            let reg_state = self.register_snapshot();
 
             match self.operation() {
                 Ok((inst,operands,to_print)) => {
@@ -481,7 +478,7 @@ impl VirtualMachine {
                     }
                     let _ = output.write_step(
                         ProgramStep::step(
-                            self.register_snapshot(), 
+                            reg_state, 
                             repr));
                     if let Some(to_print) = to_print {
                         let _ = output.write_output(to_print);
@@ -489,7 +486,7 @@ impl VirtualMachine {
                 },
                 Err(RuntimeError::ErrFinished) => {
                     let _ = output.write_step(ProgramStep::step(
-                        self.register_snapshot(),
+                        reg_state,
                         "HALT".into()
                     ));
                     run_state = RuntimeState::Terminate;
@@ -516,10 +513,21 @@ impl VirtualMachine {
                         run_state = Pause;
                     }
                 },
+                SetCommandDelay(new_delay,pause_after) => {
+                    delay = new_delay;
+                    if pause_after {
+                        run_state = RuntimeState::Pause;
+                    } else {
+                        run_state = RuntimeState::Run;
+                    }
+                },
                 // quit immediately.
                 Terminate => break,
             }
-            
+
+            if delay > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(delay.try_into().expect("Invalid delay duration.")));
+            }
         }
     }
 

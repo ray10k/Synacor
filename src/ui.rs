@@ -142,9 +142,8 @@ impl MainUiState {
             .take((mid_layout[1].height - 2) as usize) // -2 to allow room for the borders around the list.
             .rev()
             .map(|state| {
-                let inst_line = format!("{:01x}:{}",state.registers.program_counter);
-                
-                Line::from(&inst_line[..])
+                let inst_line = format!("{:04x}:{}",state.registers.program_counter,&state.instruction[..]);
+                Line::from(inst_line)
             })
             .collect();
 
@@ -178,6 +177,7 @@ impl MainUiState {
                         if key.kind == KeyEventKind::Press {
                             match key.code {
                                 KeyCode::Enter => {
+                                    self.input_buffer.push('\u{0a}'); //Manually add the line-feed character at the end.
                                     self.ui_mode = UiMode::InputReady;
                                 },
                                 KeyCode::Char(letter) => {

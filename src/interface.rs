@@ -6,6 +6,7 @@ pub enum RuntimeState {
     SingleStep,
     RunForSteps(usize),
     RunUntilAddress(u16),
+    SetCommandDelay(usize,bool),
     Terminate,
 }
 
