@@ -148,7 +148,8 @@ pub enum RuntimeError {
     ErrUnknownOperation(u16),
     ErrUnknownOperand(u16),
     ErrRegisterExpected,
-    ErrStackEmpty
+    ErrInputEmpty,
+    ErrStackEmpty,
 }
 
 impl Display for RuntimeError {
@@ -159,6 +160,7 @@ impl Display for RuntimeError {
             RuntimeError::ErrUnknownOperand(x) => format!("Unknown operand with value {x:x}."),
             RuntimeError::ErrRegisterExpected => String::from("Expected a register, got a literal value."),
             RuntimeError::ErrStackEmpty => String::from("POP instruction executed with empty stack."),
+            RuntimeError::ErrInputEmpty => String::from("IN instruction executed while input buffer was empty.")
         };
         write!(f,"{message}" )
     }
@@ -424,6 +426,7 @@ impl VirtualMachine {
                     self.registers[register_number] = ch;
                 } else {
                     self.program_counter = old_count; //Stall the program if the buffer is empty.
+                    return Err(RuntimeError::ErrInputEmpty);
                 }
             },
             Operation::Noop => (),
@@ -446,16 +449,16 @@ impl VirtualMachine {
 
     pub fn run_program(&mut self, output:&mut impl VmInterface) {
         use RuntimeState::*;
-        let mut latest = Operation::Noop;
         let mut run_state = Pause;
         let mut delay:usize = 0;
+        let mut need_input:bool = false;
         loop {
             run_state = output.read_state(run_state == Pause)
                 .unwrap_or(run_state);
 
-            if latest == Operation::In {
+            if need_input {
                 //Input is needed, so make sure that the buffer has the latest data.
-
+                need_input = false;
                 self.input_buffer.extend(
                     output.read_input() //Fetch the latest input (as a string)
                     .chars() //Iterate over the characters. Remember, a Rust char is 4 bytes!
@@ -472,7 +475,6 @@ impl VirtualMachine {
                     // Set up the "representation" of the executed instruction; a string giving
                     // a human-readable version.
                     let mut repr = format!("{inst}");
-                    latest = inst;
                     for pv in operands {
                         repr.push_str(&format!(" {pv}")[..]);
                     }
@@ -483,6 +485,10 @@ impl VirtualMachine {
                     if let Some(to_print) = to_print {
                         let _ = output.write_output(to_print);
                     }
+                },
+                Err(RuntimeError::ErrInputEmpty) => {
+                    need_input = true;
+                    output.request_input();
                 },
                 Err(RuntimeError::ErrFinished) => {
                     let _ = output.write_step(ProgramStep::step(

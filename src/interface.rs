@@ -58,6 +58,7 @@ pub trait UiInterface {
 pub trait VmInterface {
     fn write_output(&mut self, c:char) -> std::io::Result<()>;
     fn write_step(&mut self, step:ProgramStep) -> std::io::Result<()>;
+    fn request_input(&mut self);
     fn runtime_err(&mut self, message:String);
     fn read_input(&mut self) -> String;
     fn read_state(&mut self, blocking:bool) -> Option<RuntimeState>;

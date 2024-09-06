@@ -101,9 +101,6 @@ impl VmInterface for ThreadVmInterface {
     }
 
     fn write_step(&mut self, step:ProgramStep) -> std::io::Result<()> {
-        if step.instruction.starts_with("IN") {
-            self.need_input.swap(true, Ordering::Relaxed);
-        }
         match self.steps_outgoing.send(step){
             Ok(_) => Ok(()),
             Err(e) => Err(Error::new(ErrorKind::Other, e)),
@@ -118,9 +115,17 @@ impl VmInterface for ThreadVmInterface {
     fn read_input(&mut self) -> String {
         let input = self.input_incoming.recv();
         match input {
-            Ok(s) => s,
+            Ok(s) => {
+                let mut retval = String::from(s);
+                retval.extend(self.input_incoming.try_iter());
+                retval
+            },
             Err(_) => String::from(""),
         }
+    }
+    
+    fn request_input(&mut self) {
+        self.need_input.swap(true,Ordering::Relaxed);
     }
 
     fn read_state(&mut self, blocking:bool) -> Option<RuntimeState> {
