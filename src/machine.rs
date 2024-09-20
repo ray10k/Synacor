@@ -1,4 +1,4 @@
-use std::io::{BufReader,Read,BufWriter,Write,stdin,Result as io_result};
+use std::io::{BufReader,Read,BufWriter,Write,Result as io_result};
 use std::fs::File;
 use std::convert::From;
 use std::fmt::{Display,Result as fmtResult};
@@ -164,13 +164,6 @@ impl Display for RuntimeError {
         };
         write!(f,"{message}" )
     }
-}
-
-#[derive(Default,Debug)]
-pub struct ProgramState {
-    pub registers:[u16;8],
-    pub program_counter:usize,
-    pub stack_depth:usize
 }
 
 impl VirtualMachine {

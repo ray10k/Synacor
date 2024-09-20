@@ -135,11 +135,6 @@ impl VmInterface for ThreadVmInterface {
             Err(_) => String::from(""),
         }
     }
-    
-    fn request_input(&mut self) {
-        self.need_input.swap(true,Ordering::Relaxed);
-    }
-
     fn read_state(&mut self, blocking:bool) -> Option<RuntimeState> {
         if blocking {
             match self.state_incoming.recv() {

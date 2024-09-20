@@ -42,6 +42,7 @@ fn main()->io::Result<()>{
     Ok(())
 }
 
+#[allow(dead_code)]
 #[derive(Default)]
 struct TestUiInterface {
     step:u8,
@@ -97,6 +98,17 @@ impl UiInterface for TestUiInterface {
 
     fn is_finished(&self) -> bool {
         false
+    }
+}
+
+#[cfg(test)]
+mod testing {
+    use super::*;
+
+    #[test]
+    fn channel_test() {
+        let mut test = TestUiInterface::default();
+        assert_eq!(Some(String::from("Hello world!")),test.read_output());
     }
 }
 
