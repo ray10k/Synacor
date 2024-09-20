@@ -443,30 +443,13 @@ impl VirtualMachine {
         }
     }
 
-    pub fn program_iter(&mut self) -> VirtualMachineStep {
-        VirtualMachineStep { machine: self }
-    }
-
     pub fn run_program(&mut self, output:&mut impl VmInterface) {
         use RuntimeState::*;
         let mut run_state = Pause;
         let mut delay:usize = 0;
-        let mut need_input:bool = false;
         loop {
             run_state = output.read_state(run_state == Pause)
                 .unwrap_or(run_state);
-
-            if need_input {
-                //Input is needed, so make sure that the buffer has the latest data.
-                need_input = false;
-                self.input_buffer.extend(
-                    output.read_input() //Fetch the latest input (as a string)
-                    .chars() //Iterate over the characters. Remember, a Rust char is 4 bytes!
-                    .filter(|ch| ch.is_ascii()) //Keep only the characters that are ASCII characters, and silently drop the unicode-only characters.
-                    .map(|ch| (ch as u64 & 0x7f) as u16) //Since the VM uses 16-bit words (kind of), keep the low 2 bytes and discard the high 2 bytes.
-                    .rev()//Reverse the order of the characters, so the last character entered ends up at the bottom of the stack.
-                ) 
-            } 
 
             let reg_state = self.register_snapshot();
 
@@ -487,8 +470,13 @@ impl VirtualMachine {
                     }
                 },
                 Err(RuntimeError::ErrInputEmpty) => {
-                    need_input = true;
-                    output.request_input();
+                    let new_input = output.read_input(); //Note that this is a blocking operation.
+                    self.input_buffer.extend(
+                        new_input.chars() //take the characters of the string,
+                        .filter(|ch| ch.is_ascii())// Keep the ones that are ASCII characters,
+                        .map(|ch| (ch as u64 &0x7f) as u16)// Turn the characters into 16-bit values (since that's what the VM works with,)
+                        .rev()//and finally reverse the string, so that the first character is at the top of the 'stack'.
+                    );
                 },
                 Err(RuntimeError::ErrFinished) => {
                     let _ = output.write_step(ProgramStep::step(

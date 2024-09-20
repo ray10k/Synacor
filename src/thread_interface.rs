@@ -113,6 +113,18 @@ impl VmInterface for ThreadVmInterface {
     }
 
     fn read_input(&mut self) -> String {
+        //Ensure that the channel is empty first, so only the most-recent request for input
+        //gets answered
+        let mut clearing = self.input_incoming.try_iter();
+        while let Some(x) = clearing.next() {
+            //Make it explicit that 'junk' Strings are discarded here.
+            drop(x);
+        }
+
+        //Next, signal a need for input.
+        self.need_input.store(true, Ordering::Relaxed);
+        
+        //Only *now*, block until input is available.
         let input = self.input_incoming.recv();
         match input {
             Ok(s) => {
