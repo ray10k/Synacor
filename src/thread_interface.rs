@@ -1,7 +1,7 @@
 use std::sync::{mpsc::{self,Sender,Receiver},atomic::{AtomicBool,Ordering},Arc};
 use std::io::{Error,ErrorKind,Result as IoResult};
 
-use crate::{UiInterface,VmInterface,RuntimeState,ProgramStep};
+use crate::interface::*;
 
 pub fn make_interfaces() -> (ThreadUiInterface,ThreadVmInterface) {
     let (state_out,state_in) = mpsc::channel();
