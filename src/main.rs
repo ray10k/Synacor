@@ -3,6 +3,8 @@ mod machine;
 mod ui;
 mod interface;
 mod thread_interface;
+mod instruction;
+mod static_analysis;
 
 use clap::Parser;
 use std::io::stdin;
