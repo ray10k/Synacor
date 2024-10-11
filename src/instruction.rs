@@ -1,5 +1,7 @@
 use std::fmt::{Display,Result as fmtResult};
 
+use itertools::Itertools;
+
 
 #[derive(Debug,PartialEq)]
 pub enum Operation {
@@ -124,4 +126,19 @@ impl Display for ParsedValue{
             Self::Error(v) => write!(f,"E({v})"),
         }
     }
+}
+
+/// Takes in a slice of bytes and, if possible, parses to a vector of
+/// u15's (represented as u16's.)
+pub fn parse_program_slice(input:&[u8]) -> Result<Vec<u16>,()> {
+    if input.len() % 2 != 0 {
+        return Err(());
+    }
+    let retval = input.into_iter()
+        .tuples::<(&u8,&u8)>()
+        .map(|(low,high)|{
+            u16::from_le_bytes([*low,*high])
+        })
+        .collect();
+    Ok(retval)
 }
