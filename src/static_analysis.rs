@@ -1,4 +1,4 @@
-use std::{collections::HashSet, ffi::OsStr, fmt::Display};
+use std::{collections::HashSet, ffi::OsStr, fmt::Display, fs::File};
 
 use crate::instruction::*;
 
@@ -30,10 +30,30 @@ enum JumpType {
     Fixed,
     /// The jump will always happen, and starts a subroutine.
     Call,
+    /// The jump will always happen, and returns from a subroutine.
+    Return,
+    /// The "jump" is a halt-instruction. Program execution stops here.
+    Halt,
+    /// The "jump" is a malformed instruction. Program execution errors out here.
+    Error,
     /// The jump may not happen, depending on register state.
-    Conditional,
-    /// Either the jump itself or the operand may be overwritten and executed.
-    Modified
+    Conditional
+}
+
+impl TryInto<JumpType> for Operation {
+    type Error = ();
+
+    fn try_into(self) -> Result<JumpType, <Operation as TryInto<JumpType>>::Error> {
+        match self {
+            Self::Jmp => Ok(JumpType::Fixed),
+            Self::Jf | Self::Jt => Ok(JumpType::Conditional),
+            Self::Call => Ok(JumpType::Call),
+            Self::Ret => Ok(JumpType::Return),
+            Self::Halt => Ok(JumpType::Halt),
+            Self::Error(_) => Ok(JumpType::Error),
+            _ => Err(())
+        }
+    }
 }
 
 /// A jump in execution; can be conditional.
@@ -79,6 +99,8 @@ fn parse_program_and_save(program:&[u16],save_path:&OsStr) -> Result<(),Analysis
                     //Save the current block, keep going.
                     let end = program_counter as u16 + operands + 1;
                     exec_blocks.push(ExecBlock::new(block_start, end));
+
+                    jump_info.push(Jump { from: program_counter as u16, target: None, jump_type: instruction.try_into().unwrap() });
                     continue 'executable;
                 },
                 //option 2: end-of-block via unconditional, un-resumable jump.
@@ -89,6 +111,9 @@ fn parse_program_and_save(program:&[u16],save_path:&OsStr) -> Result<(),Analysis
                     let target = ParsedValue::from(program[program_counter + 1]);
                     if let ParsedValue::Literal(address) = target {
                         jump_targets.push(address);
+                        jump_info.push(Jump { from: program_counter as u16, target: Some(address), jump_type: JumpType::Fixed });
+                    } else {
+                        jump_info.push(Jump { from: program_counter as u16, target: None, jump_type: JumpType::Fixed });
                     }
                     continue 'executable;
                 },
@@ -99,6 +124,9 @@ fn parse_program_and_save(program:&[u16],save_path:&OsStr) -> Result<(),Analysis
                     let target = ParsedValue::from(program[program_counter+2]);
                     if let ParsedValue::Literal(address) = target {
                         jump_targets.push(address);
+                        jump_info.push(Jump { from: program_counter as u16, target: Some(address), jump_type: JumpType::Conditional });
+                    } else {
+                        jump_info.push(Jump { from: program_counter as u16, target: None, jump_type: JumpType::Conditional });
                     }
                 },
                 Operation::Call => {
@@ -106,6 +134,9 @@ fn parse_program_and_save(program:&[u16],save_path:&OsStr) -> Result<(),Analysis
                     let target = ParsedValue::from(program[program_counter+1]);
                     if let ParsedValue::Literal(address) = target {
                         jump_targets.push(address);
+                        jump_info.push(Jump { from: program_counter as u16, target: Some(address), jump_type: JumpType::Call });
+                    } else {
+                        jump_info.push(Jump { from: program_counter as u16, target: None, jump_type: JumpType::Call });
                     }
                 },
                 //option 4: memory read.
@@ -132,7 +163,30 @@ fn parse_program_and_save(program:&[u16],save_path:&OsStr) -> Result<(),Analysis
     }
 
     //Step 3: prepare to write out.
+    //For now, keep only the fixed-target jumps and discard anything that doesn't have a target address.
+    let mut targeted_jumps:Vec<Jump> = jump_info.into_iter()
+        .filter(|jump| jump.target.is_some())
+        .collect();
+    //sort based on destination address, so the data can be used to make labels.
+    targeted_jumps.sort_by(|a,b|
+        a.target
+        .as_ref()
+        .unwrap()
+        .cmp(b.target
+            .as_ref()
+            .unwrap()));
+    //Deduplicate and combine the execution blocks, to identify non-executable data.
+    //Sort in reverse.
+    exec_blocks.sort_by(|a,b| b.start.cmp(&a.start));
+    let mut deduped_blocks:Vec<ExecBlock> = Vec::new();
+    'next_block: while !exec_blocks.is_empty() {
+        let current_block = exec_blocks.pop().unwrap();
+        //remove all blocks that are fully contained in this block.
+        
+    }
 
+    let mut destination_file = File::create(save_path).or(Err(AnalysisError::FileAccessError))?;
+    
     Ok(())
 }
 /*
