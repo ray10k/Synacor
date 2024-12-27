@@ -1,6 +1,7 @@
-use std::{collections::HashSet, ffi::OsStr, fmt::Display, fs::File};
+use std::{collections::HashSet, ffi::OsStr, fmt::Display, fs::File, io::Write};
 
 use crate::instruction::*;
+use itertools::Itertools;
 
 /// A block of executed code.
 #[derive(PartialEq, Eq, PartialOrd, Ord,Debug,Clone,Copy)]
@@ -69,9 +70,10 @@ struct Jump {
 enum AnalysisError {
     GenericError,
     FileAccessError,
+    FileWriteError,
 }
 
-fn parse_program_and_save(program:&[u16],save_path:&OsStr) -> Result<(),AnalysisError> {
+fn parse_program_and_save(program:&[u16],original_name:&str,save_path:&OsStr) -> Result<(),AnalysisError> {
     //Step 1: setup.
     let mut read_addresses:HashSet<u16> = HashSet::new();
     let mut write_addresses:HashSet<u16> = HashSet::new();
@@ -178,14 +180,24 @@ fn parse_program_and_save(program:&[u16],save_path:&OsStr) -> Result<(),Analysis
     //Deduplicate and combine the execution blocks, to identify non-executable data.
     //Sort in reverse.
     exec_blocks.sort_by(|a,b| b.start.cmp(&a.start));
-    let mut deduped_blocks:Vec<ExecBlock> = Vec::new();
-    'next_block: while !exec_blocks.is_empty() {
-        let current_block = exec_blocks.pop().unwrap();
-        //remove all blocks that are fully contained in this block.
-        
-    }
+    
+    let exec_blocks:Vec<ExecBlock> = exec_blocks.into_iter().coalesce(|l,r| {
+        if l.end < r.start {
+            Err((l,r))
+        } else if l.end >= r.end {
+            Ok(l)
+        } else {
+            Ok(ExecBlock::new(l.start, r.end))
+        }
+    }).collect();
 
     let mut destination_file = File::create(save_path).or(Err(AnalysisError::FileAccessError))?;
+
+    writeln!(&mut destination_file,"Data listing for file {original_name}").or(Err(AnalysisError::FileWriteError))?;
+    writeln!(&mut destination_file,"Binary size: {} bytes ({} words)",program.len()*2,program.len()).or(Err(AnalysisError::FileWriteError))?;
+    writeln!(&mut destination_file,"\n\n").or(Err(AnalysisError::FileWriteError))?;
+
+    
     
     Ok(())
 }
