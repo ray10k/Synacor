@@ -1,4 +1,4 @@
-use std::{collections::HashSet, ffi::OsStr, fmt::Display, fs::File, io::Write};
+use std::{collections::HashSet, ffi::OsStr, fmt::Display, fs::File, io::Write, os::unix::raw::blkcnt_t};
 
 use crate::instruction::*;
 use itertools::Itertools;
@@ -15,6 +15,10 @@ struct ExecBlock{
 impl ExecBlock {
     fn new(start:u16,end:u16) -> Self {
         Self { start: start, end: end }
+    }
+
+    fn contains(&self,addr:usize) -> bool {
+        self.start as usize >= addr && self.end as usize <= addr
     }
 }
 
@@ -65,6 +69,21 @@ struct Jump {
     target:Option<u16>,
     /// Type of jump.
     jump_type:JumpType,
+}
+
+struct JumpLabel {
+    from:u16,
+    target:u16
+}
+
+impl Jump {
+    fn get_label(&self) -> Option<JumpLabel> {
+        if let Some(target) = self.target {
+            Some(JumpLabel{from:self.from,target:target})
+        } else {
+            None
+        }
+    }
 }
 
 enum AnalysisError {
@@ -177,6 +196,7 @@ fn parse_program_and_save(program:&[u16],original_name:&str,save_path:&OsStr) ->
         .cmp(b.target
             .as_ref()
             .unwrap()));
+    let known_labels:Vec<JumpLabel> = targeted_jumps.iter().filter_map(|jmp| jmp.get_label()).collect();
     //Deduplicate and combine the execution blocks, to identify non-executable data.
     //Sort in reverse.
     exec_blocks.sort_by(|a,b| b.start.cmp(&a.start));
@@ -197,7 +217,45 @@ fn parse_program_and_save(program:&[u16],original_name:&str,save_path:&OsStr) ->
     writeln!(&mut destination_file,"Binary size: {} bytes ({} words)",program.len()*2,program.len()).or(Err(AnalysisError::FileWriteError))?;
     writeln!(&mut destination_file,"\n\n").or(Err(AnalysisError::FileWriteError))?;
 
-    
+    let mut exec_blocks = exec_blocks.iter();
+    let mut current_block = exec_blocks.next().expect("No block of execution at the start of the program");
+    let mut current_address:usize = 0;
+
+    while current_address < program.len() {
+        //First: determine if this is executable instructions, or data according to the current block.
+        if current_block.contains(current_address) {
+            //instruction-block. Read one instruction, check for labels, write out.
+            let label = known_labels.iter().filter(|label|label.target as usize == current_address).collect::<Vec<_>>();
+            for l in label.into_iter() {
+                writeln!(&mut destination_file,"     :l{:0>4x}",l.from).or(Err(AnalysisError::FileWriteError))?;
+            }
+
+            let instr = Operation::from(program[current_address]);
+
+            writeln!(&mut destination_file,"{:0>4x} {instr}",current_address&0xffff).or(Err(AnalysisError::FileWriteError))?;
+
+            current_address += (instr.operands() as usize) + 1;
+        } else {
+            //data-block. Fetch the next one, then write word-after-word of this block
+            // until the start of the next instruction-block.
+            let another_block = exec_blocks.next();
+            let stop_point;
+            if let Some(blk) = another_block {
+                current_block = blk;
+                stop_point = blk.end as usize;
+            } else {
+                //Write-out until end of file.
+                stop_point = program.len();
+            }
+            let start_offset = current_address & 0b0111; //Grab the low three bits.
+            //I want to print out the data-block in the following format:
+            //<start-address of the line>: <8 words of data in hexadecimal> | <same 8 words as 16 ascii characters>
+            //Beginning of a data-block might not be on an  8-word boundary, in which case the leading characters/words are left blank.
+            //per example:
+            //023B: 6162 4344 6566 4748 6970 5152 7374 5556 | abCDefGHijKLmnOP
+        }
+    }
+
     
     Ok(())
 }
