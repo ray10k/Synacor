@@ -1,4 +1,4 @@
-use std::{collections::HashSet, ffi::OsStr, fmt::Display, fs::File, io::Write, os::unix::raw::blkcnt_t};
+use std::{collections::HashSet, ffi::OsStr, fmt::Display, fs::File, io::Write};
 
 use crate::instruction::*;
 use itertools::Itertools;
@@ -229,10 +229,16 @@ fn parse_program_and_save(program:&[u16],original_name:&str,save_path:&OsStr) ->
             for l in label.into_iter() {
                 writeln!(&mut destination_file,"     :l{:0>4x}",l.from).or(Err(AnalysisError::FileWriteError))?;
             }
-
             let instr = Operation::from(program[current_address]);
 
-            writeln!(&mut destination_file,"{:0>4x} {instr}",current_address&0xffff).or(Err(AnalysisError::FileWriteError))?;
+            write!(&mut destination_file,"{:0>4x} {instr}",current_address&0xffff).or(Err(AnalysisError::FileWriteError))?;
+
+            for op in 0..instr.operands() {
+                let op_address = current_address + (op as usize);
+                let parsed_op = ParsedValue::from(program[op_address]);
+                write!(&mut destination_file," {parsed_op}").or(Err(AnalysisError::FileWriteError))?;
+            }
+            writeln!(&mut destination_file,"").or(Err(AnalysisError::FileWriteError))?;
 
             current_address += (instr.operands() as usize) + 1;
         } else {
@@ -247,12 +253,47 @@ fn parse_program_and_save(program:&[u16],original_name:&str,save_path:&OsStr) ->
                 //Write-out until end of file.
                 stop_point = program.len();
             }
-            let start_offset = current_address & 0b0111; //Grab the low three bits.
+            
             //I want to print out the data-block in the following format:
             //<start-address of the line>: <8 words of data in hexadecimal> | <same 8 words as 16 ascii characters>
             //Beginning of a data-block might not be on an  8-word boundary, in which case the leading characters/words are left blank.
             //per example:
             //023B: 6162 4344 6566 4748 6970 5152 7374 5556 | abCDefGHijKLmnOP
+
+            for block_start in (current_address..stop_point).step_by(8) {
+                if stop_point - block_start < 8 {
+                    //Handle last (shorter) block.
+                    let block_data = &program[block_start..stop_point];
+                    let empties = 8 - (stop_point - block_start); //number of words that this block misses, and should be left empty.
+                    write!(&mut destination_file,"{block_start:0>4x}: ").or(Err(AnalysisError::FileWriteError))?;
+                    for word in block_data.iter() {
+                        write!(&mut destination_file,"{:0>4x} ",word).or(Err(AnalysisError::FileWriteError))?;
+                    }
+                    for _ in 0..empties {
+                        write!(&mut destination_file,"     ").or(Err(AnalysisError::FileWriteError))?;
+                    }
+                    write!(&mut destination_file,"| ").or(Err(AnalysisError::FileWriteError))?;
+
+                    for word in block_data.iter() {
+                        let l = char::from_u32((0x7f & *word) as u32).unwrap_or(char::REPLACEMENT_CHARACTER);
+                        let r = char::from_u32((0x7f & (*word >> 8)) as u32).unwrap_or(char::REPLACEMENT_CHARACTER);
+                        write!(&mut destination_file,"{l}{r}").or(Err(AnalysisError::FileWriteError))?;
+                    }
+                    //No need to pad the end out. Still need a newline though, so empty writeln. 
+                    writeln!(&mut destination_file,"").or(Err(AnalysisError::FileWriteError))?;
+                } else {
+                    //Handle full block.
+                    let block_data = &program[block_start..(block_start+8)];
+                    let block_letters = String::from_iter(block_data.iter() //Take the words from the current block...
+                        .map(|num| [0x7f & *num, 0x7f & (*num >> 8)]) //... split the 16-bit word into a pair of 8-bit characters in an array...
+                        .flatten() //...flatten the two-wide arrays into a single sequence of bytes (presented as u16's still)...
+                        .map(|num| char::from_u32(num as u32).unwrap_or(char::REPLACEMENT_CHARACTER))); //...and cast them to characters (or use the default replacement character � if that is not possible.)
+
+                    writeln!(&mut destination_file,"{block_start:0>4x}: {:0>4x} {:0>4x} {:0>4x} {:0>4x} {:0>4x} {:0>4x} {:0>4x} {:0>4x} | {}",
+                        block_data[0],block_data[1],block_data[2],block_data[3],block_data[4],block_data[5],block_data[6],block_data[7], block_letters
+                    ).or(Err(AnalysisError::FileWriteError))?;
+                }
+            }
         }
     }
 
