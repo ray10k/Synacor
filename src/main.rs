@@ -7,22 +7,57 @@ mod instruction;
 mod static_analysis;
 
 use clap::Parser;
-use std::io::stdin;
+use std::{fs::File, io::prelude::*};
+use itertools::Itertools;
 
 use crate::machine::VirtualMachine;
 
 #[derive(Parser,Debug)]
 #[command(version, about)]
 struct Args{
-    file_name:Option<String>,
-
-    #[arg(short)]
-    sequence:Option<String>
+    #[arg()]
+    binary_source:String,
+    #[arg(help="Treat input as raw data.",long_help="Interpret the input as a sequence of 15-bit words, presented in little endian order hexadecimal notation.",short='r')]
+    raw_input:bool,
+    #[arg(help="Analyze input, and save result.",long_help="Instead of executing the provided input, analyze the data and save an assembly file at the provided location.",short='a',)]
+    analyze:Option<String>,
 }
+
+
 
 fn main() {
     let args = Args::parse();
-    print!("{args:?}");
+    println!("{args:?}");
+
+    match args.analyze {
+        Some(destination) => {
+            let bytes:Vec<u16>;
+            if args.raw_input {
+                bytes =  sequence_decypher(&args.binary_source);
+            } else {
+                //open the file, parse from bytes to words, put in vec.
+                bytes = File::open(args.binary_source).expect("Error opening file")
+                .bytes()
+                .into_iter()
+                .map(|byte| byte.unwrap_or(0))
+                .tuples::<(u8,u8)>()
+                .map(|(low,high)| (low as u16) | (high as u16) << 8)
+                .collect();
+            }
+            static_analysis::parse_program_and_save(&bytes, original_name, save_path)
+        },
+        None => {
+            let vm:VirtualMachine;
+            if args.raw_input {
+                let byte_sequence:Vec<u16> = sequence_decypher(&args.binary_source);
+                vm = VirtualMachine::init_from_sequence(&byte_sequence);
+            } else {
+                vm = VirtualMachine::init_from_file(&args.binary_source).expect("Could not parse given file");
+            }
+            startup::main_interface(vm).expect("Serious error during program runtime");
+        },
+    }
+    /*
     let vm = if let Some(path) = args.file_name {
         VirtualMachine::init_from_file(&path).expect("Error loading binary file.")
     } else if let Some(seq) = args.sequence {
@@ -36,17 +71,8 @@ fn main() {
         VirtualMachine::init_from_file(binary_path.trim()).expect("Error loading binary file.")
     };
     
-    startup::main_interface(vm).expect("Something went wrong running the program!");
+    startup::main_interface(vm).expect("Something went wrong running the program!");*/
 }  
-
-fn get_file_path() -> String {
-    println!("No file path was specified at the command line!\nPlease enter a path to a binary file to run.");
-    print!("> ");
-    let mut buffer:String = String::new();
-    stdin().read_line(&mut buffer).expect("Something went wrong, restart the program!");
-    println!("\nRunning file {buffer}.");
-    buffer
-}
 
 fn sequence_decypher(input:&str) -> Vec<u16> {
     let words = input.len()/4;

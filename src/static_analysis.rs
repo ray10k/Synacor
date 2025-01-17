@@ -92,7 +92,7 @@ enum AnalysisError {
     FileWriteError,
 }
 
-fn parse_program_and_save(program:&[u16],original_name:&str,save_path:&OsStr) -> Result<(),AnalysisError> {
+pub fn parse_program_and_save(program:&[u16],original_name:&str,save_path:&OsStr) -> Result<(),AnalysisError> {
     //Step 1: setup.
     let mut read_addresses:HashSet<u16> = HashSet::new();
     let mut write_addresses:HashSet<u16> = HashSet::new();
