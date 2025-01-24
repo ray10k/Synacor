@@ -1,4 +1,4 @@
-use std::{collections::HashSet, ffi::OsStr, fmt::Display, fs::File, io::Write};
+use std::{collections::HashSet, fmt::Display, fs::File, io::Write};
 
 use crate::instruction::*;
 use itertools::Itertools;
@@ -86,13 +86,14 @@ impl Jump {
     }
 }
 
-enum AnalysisError {
+#[derive(Debug)]
+pub enum AnalysisError {
     GenericError,
     FileAccessError,
     FileWriteError,
 }
 
-pub fn parse_program_and_save(program:&[u16],original_name:&str,save_path:&OsStr) -> Result<(),AnalysisError> {
+pub fn parse_program_and_save(program:&[u16],original_name:&str,save_path:&str) -> Result<(),AnalysisError> {
     //Step 1: setup.
     let mut read_addresses:HashSet<u16> = HashSet::new();
     let mut write_addresses:HashSet<u16> = HashSet::new();

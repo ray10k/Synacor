@@ -32,19 +32,30 @@ fn main() {
     match args.analyze {
         Some(destination) => {
             let bytes:Vec<u16>;
+            let original_name:&str;
             if args.raw_input {
                 bytes =  sequence_decypher(&args.binary_source);
+                original_name = "<raw input>";
             } else {
                 //open the file, parse from bytes to words, put in vec.
-                bytes = File::open(args.binary_source).expect("Error opening file")
+                bytes = File::open(&args.binary_source).expect("Error opening file")
                 .bytes()
                 .into_iter()
                 .map(|byte| byte.unwrap_or(0))
                 .tuples::<(u8,u8)>()
                 .map(|(low,high)| (low as u16) | (high as u16) << 8)
                 .collect();
+                if destination.contains(&['/','\\']) {
+                    original_name = &args.binary_source[args.binary_source.find(&['/','\\']).unwrap()..];
+                } else {
+                    original_name = &args.binary_source[..];
+                }
             }
-            static_analysis::parse_program_and_save(&bytes, original_name, save_path)
+            if let Err(e) = static_analysis::parse_program_and_save(&bytes, original_name, &destination[..]) {
+                println!("Error in analysis: {e:?}");
+            } else {
+                println!("Analysis completed sucessfully.");
+            }
         },
         None => {
             let vm:VirtualMachine;
@@ -78,6 +89,8 @@ fn sequence_decypher(input:&str) -> Vec<u16> {
     let words = input.len()/4;
     (0..words).into_iter().map(|start|{
         let left = start * 4;
-        u16::from_str_radix(&input[left..left+4], 16).expect("Malformed sequence input!")
+        let low_byte:u16 = u16::from_str_radix(&input[left..left+2], 16).expect("Malformed sequence input!");
+        let high_byte:u16 = u16::from_str_radix(&input[left+2..left+4], 16).expect("Malformed sequence input!");
+        (high_byte << 8) | low_byte
     }).collect()
 }
