@@ -18,7 +18,7 @@ impl ExecBlock {
     }
 
     fn contains(&self,addr:usize) -> bool {
-        self.start as usize >= addr && self.end as usize <= addr
+        self.start as usize <= addr && self.end as usize >= addr
     }
 }
 
@@ -199,8 +199,8 @@ pub fn parse_program_and_save(program:&[u16],original_name:&str,save_path:&str) 
             .unwrap()));
     let known_labels:Vec<JumpLabel> = targeted_jumps.iter().filter_map(|jmp| jmp.get_label()).collect();
     //Deduplicate and combine the execution blocks, to identify non-executable data.
-    //Sort in reverse.
-    exec_blocks.sort_by(|a,b| b.start.cmp(&a.start));
+    exec_blocks.sort_by(|a,b| a.start.cmp(&b.start));
+    println!("Exec blocks: {exec_blocks:?}");
     
     let exec_blocks:Vec<ExecBlock> = exec_blocks.into_iter().coalesce(|l,r| {
         if l.end < r.start {
@@ -224,6 +224,7 @@ pub fn parse_program_and_save(program:&[u16],original_name:&str,save_path:&str) 
 
     while current_address < program.len() {
         //First: determine if this is executable instructions, or data according to the current block.
+        println!("Addr {current_address}:{current_block:?}");
         if current_block.contains(current_address) {
             //instruction-block. Read one instruction, check for labels, write out.
             let label = known_labels.iter().filter(|label|label.target as usize == current_address).collect::<Vec<_>>();
@@ -234,10 +235,25 @@ pub fn parse_program_and_save(program:&[u16],original_name:&str,save_path:&str) 
 
             write!(&mut destination_file,"{:0>4x} {instr}",current_address&0xffff).or(Err(AnalysisError::FileWriteError))?;
 
-            for op in 0..instr.operands() {
+            for op in 0..=instr.operands() {
                 let op_address = current_address + (op as usize);
                 let parsed_op = ParsedValue::from(program[op_address]);
                 write!(&mut destination_file," {parsed_op}").or(Err(AnalysisError::FileWriteError))?;
+            }
+
+            if let Operation::Out = instr {
+                //For ease of use: turn the character being written to screen by the OUT instruction into something human-readable.
+                let code = (program[current_address+1] & 0x7f) as u8;
+                if code.is_ascii_alphanumeric() || code.is_ascii_punctuation(){
+                    let ch = code as char;
+                    write!(&mut destination_file,"  {ch}",).or(Err(AnalysisError::FileWriteError))?;
+                } else if code == 0x20 {
+                    write!(&mut destination_file,"  ' '",).or(Err(AnalysisError::FileWriteError))?;
+                } else if code.is_ascii_control() {
+                    write!(&mut destination_file,"  0x{code:0>2x}").or(Err(AnalysisError::FileWriteError))?;
+                } else {
+                    write!(&mut destination_file,"  �").or(Err(AnalysisError::FileWriteError))?;
+                }
             }
             writeln!(&mut destination_file,"").or(Err(AnalysisError::FileWriteError))?;
 
@@ -249,7 +265,7 @@ pub fn parse_program_and_save(program:&[u16],original_name:&str,save_path:&str) 
             let stop_point;
             if let Some(blk) = another_block {
                 current_block = blk;
-                stop_point = blk.end as usize;
+                stop_point = blk.start as usize;
             } else {
                 //Write-out until end of file.
                 stop_point = program.len();
@@ -295,6 +311,7 @@ pub fn parse_program_and_save(program:&[u16],original_name:&str,save_path:&str) 
                     ).or(Err(AnalysisError::FileWriteError))?;
                 }
             }
+            current_address = stop_point;
         }
     }
 
