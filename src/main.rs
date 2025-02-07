@@ -5,6 +5,7 @@ mod interface;
 mod thread_interface;
 mod instruction;
 mod static_analysis;
+mod instruction_tracker;
 
 use clap::Parser;
 use std::{fs::File, io::prelude::*};
