@@ -221,6 +221,16 @@ pub fn parse_program_and_save(program:&[u16],original_name:&str,save_path:&str) 
     let mut exec_blocks = exec_blocks.iter();
     let mut current_block = exec_blocks.next().expect("No block of execution at the start of the program");
     let mut current_address:usize = 0;
+    let byte_rep = |byte:u8| -> String {
+        const INSTRUCTION_LETTERS:[char;21] = ['s','P','p','e','g','j','t','f','+','*','%','&','|','^','m','M','C','R','O','I',' '];
+        match byte {
+            0x0a => {String::from("/n")},
+            0x00 => {String::from("/0")},
+            letter if byte.is_ascii_graphic() => {format!(" {}",letter as char)},
+            instr if byte <= 21 => {format!("!{}",INSTRUCTION_LETTERS[(instr as usize) - 1])},
+            other => {format!("{other:2x}")}
+        }
+    };
 
     while current_address < program.len() {
         //First: determine if this is executable instructions, or data according to the current block.
@@ -292,8 +302,8 @@ pub fn parse_program_and_save(program:&[u16],original_name:&str,save_path:&str) 
                     write!(&mut destination_file,"| ").or(Err(AnalysisError::FileWriteError))?;
 
                     for word in block_data.iter() {
-                        let l = char::from_u32((0x7f & *word) as u32).unwrap_or(char::REPLACEMENT_CHARACTER);
-                        let r = char::from_u32((0x7f & (*word >> 8)) as u32).unwrap_or(char::REPLACEMENT_CHARACTER);
+                        let l = byte_rep((0xff & *word) as u8);
+                        let r = byte_rep((0xff & (*word >> 8)) as u8);
                         write!(&mut destination_file,"{l}{r}").or(Err(AnalysisError::FileWriteError))?;
                     }
                     //No need to pad the end out. Still need a newline though, so empty writeln. 
@@ -302,9 +312,9 @@ pub fn parse_program_and_save(program:&[u16],original_name:&str,save_path:&str) 
                     //Handle full block.
                     let block_data = &program[block_start..(block_start+8)];
                     let block_letters = String::from_iter(block_data.iter() //Take the words from the current block...
-                        .map(|num| [0x7f & *num, 0x7f & (*num >> 8)]) //... split the 16-bit word into a pair of 8-bit characters in an array...
-                        .flatten() //...flatten the two-wide arrays into a single sequence of bytes (presented as u16's still)...
-                        .map(|num| char::from_u32(num as u32).unwrap_or(char::REPLACEMENT_CHARACTER))); //...and cast them to characters (or use the default replacement character � if that is not possible.)
+                        .map(|num| [(0xff & *num) as u8, (0xff & (*num >> 8)) as u8]) //... split the 16-bit word into a pair of 8-bit bytes in an array...
+                        .flatten() //...flatten the two-wide arrays into a single sequence of bytes (presented as u8's still)...
+                        .map(|num| byte_rep(num))); //...and cast them to characters (or use the default replacement character � if that is not possible.)
 
                     writeln!(&mut destination_file,"{block_start:0>4x}: {:0>4x} {:0>4x} {:0>4x} {:0>4x} {:0>4x} {:0>4x} {:0>4x} {:0>4x} | {}",
                         block_data[0],block_data[1],block_data[2],block_data[3],block_data[4],block_data[5],block_data[6],block_data[7], block_letters
