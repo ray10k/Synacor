@@ -14,7 +14,7 @@ impl InstructionTracker {
         Ok(Self{destination: BufWriter::new(destination)})
     }
 
-    pub fn instruction(&mut self,pc:u16,operation:Operation,operands:&[u16],registers:RegisterState) -> Result<(),std::io::Error> {
+    pub fn handle_instruction(&mut self,pc:u16,operation:Operation,operands:&[u16],registers:RegisterState) -> Result<(),std::io::Error> {
         let op_type:char;
         let op_addr:u16; //The "memory address being targeted."
 
