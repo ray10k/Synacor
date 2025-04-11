@@ -39,26 +39,38 @@ pub fn setup_panic_hook() {
     }));
 }
 
+/// Data needed to display the current state of the VM.
 #[derive(Debug,Default)]
 pub struct MainUiState {
+    /// Recorded recently executed instructions.
     prog_states:Box<CircularBuffer<1024,ProgramStep>>,
+    /// Text that has been displayed via the `OUT` opcode.
     terminal_text:Vec<String>,
+    /// Current state of the display.
     ui_mode:UiMode,
+    /// Holding buffer for user input, prior to sending.
     input_buffer:String,
+    /// To be removed.
     exit:bool
 }
 
+/// Current state of the UI.
 #[derive(Debug,Default,PartialEq)]
 enum UiMode {
+    /// Displaying VM data as it arrives.
     #[default]
     Normal,
+    /// Displaying a text-input field.
     WaitingForInput,
     WaitingForAddress,
     WaitingForCount,
+    /// Input has been confirmed and is ready for use.
     InputReady,
     AddressReady,
     CountReady,
+    /// VM operations suspended, waiting for command selection.
     Command,
+    /// VM operations suspended.
     Paused,
 }
 
@@ -75,6 +87,7 @@ impl MainUiState {
             exit: false 
         }
     }
+
 
     pub fn main_loop(&mut self, terminal:&mut Tui, input:&mut impl UiInterface) -> io::Result<()> {
         while !self.exit {
