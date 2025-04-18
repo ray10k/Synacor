@@ -341,23 +341,10 @@ impl Widget for &MainUiState {
                 UiMode::Command => {
                     //Show command options.
                     block_title = Title::from("Command mode");
-                    block_content = Line::from(vec![
-                        "(".white(),
-                        "esc".blue().on_white(),
-                        ") exit command mode|".white(),
-                        "R".blue().on_white(),
-                        "un in normal mode,".white(),
-                        "S".blue().on_white(),
-                        "ingle step|".white(),
-                        "Run until ".white(),
-                        "a".blue().on_white(),
-                        "ddress|".white(),
-                        "Run for ".white(),
-                        "N".blue().on_white(),
-                        " steps|".white(),
-                        "Q".blue().on_white(),
-                        "uit".white()
-                    ]);
+                    block_content = build_menu_line(
+                        "(&e&s&c) exit command mode|&Run in normal mode|&Single step|Run until &address|Run for &N steps|&Quit", 
+                        Style::new().fg(Color::White), 
+                        Style::new().bg(Color::Blue).fg(Color::White).underline_color(Color::White).add_modifier(Modifier::UNDERLINED))
                 }
                 UiMode::Paused => {
                     block_title = Title::from("Execution paused");
@@ -371,4 +358,43 @@ impl Widget for &MainUiState {
                     .border_set(border::THICK))
             .render(area, buf);
     }
+}
+
+const AMPERSAND_SIZE:usize = '&'.len_utf8();
+
+///Apply the `normal_style` to `text`, except for the character immediately following an ampersand; those characters
+/// have the `highlight_style` applied instead.
+fn build_menu_line(text:&str, normal_style:Style, highlight_style:Style) -> Line {
+    //Walk over the string, one character at a time. Remember, Rust uses utf-8 encoded strings, can't just walk byte-by-byte.
+    let mark_locations:Vec<usize> = text.chars()
+        //Track where in the string the character is, and start yielding (position,character) pairs.
+        .enumerate()
+        //Keep the positions of all ampersands, drop all other positions.
+        .filter_map(|(position,letter)| {
+            if letter == '&' {Some(position)} else {None}
+        })
+        //Turn the iterator into a vector, by collecting it. The type of `mark_locations` tells Rust to use a Vector in this case.
+        .collect();
+    if mark_locations.len() == 0 { //If there are no ampersands, just style the entire line with the normal style.
+        return Line::from(Span::styled(text,normal_style))
+    }
+
+    let mut part_start:usize = 0;
+    let mut line_parts:Vec<Span> = Vec::with_capacity(1+(2*mark_locations.len()));
+
+    for amp_position in mark_locations.into_iter() {
+        if part_start != amp_position {
+            line_parts.push(Span::styled(&text[part_start..amp_position],normal_style));
+        }
+        let highlight_position = amp_position+AMPERSAND_SIZE;
+        let highlight_end = highlight_position + 1; //will break on any character larger than one byte. TODO: figure out where the next character begins.
+        line_parts.push(Span::styled(&text[amp_position+AMPERSAND_SIZE..highlight_end],highlight_style));
+        part_start = highlight_end;
+    }
+
+    if part_start != text.len() {
+        line_parts.push(Span::styled(&text[part_start..],normal_style));
+    }
+
+    Line::from(line_parts)
 }
