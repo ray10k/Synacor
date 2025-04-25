@@ -51,7 +51,15 @@ pub struct MainUiState {
     /// Holding buffer for user input, prior to sending.
     input_buffer:String,
     /// To be removed.
-    exit:bool
+    exit:bool,
+    /// Pop-up option menu.
+    popup:Option<PopupMenu>
+}
+
+/// Pop-up menu with options for manipulating the VM.
+#[derive(Debug,Default)]
+struct PopupMenu {
+    menu_mode:MenuMode
 }
 
 /// Current state of the UI.
@@ -74,8 +82,25 @@ enum UiMode {
     Paused,
 }
 
+#[derive(Debug,Default)]
+enum MenuMode {
+    #[default]
+    /// Display a list of sub-menus
+    Main,
+    /// Display options for adjusting runtime speed, and limited execution.
+    RunModes,
+    /// Display options for adjusting VM state, such as register contents.
+    VMState,
+    /// Display file-related options, such as saving the current VM state.
+    FileOptions,
+}
+
 const DEFAULT_STATE:ProgramStep = ProgramStep::const_default();
 const POLL_TIME:Duration = Duration::from_millis(100);
+/// Width/height of the pop-up menu.
+const POPUP_SIZE:(u16,u16) = (40,20);
+const MENU_NORMAL_STYLE:Style = Style::new().bg(Color::Green).fg(Color::White);
+const MENU_HILIGHT_STYLE:Style = Style::new().bg(Color::LightRed).fg(Color::Black).underline_color(Color::Gray).add_modifier(Modifier::UNDERLINED);
 
 impl MainUiState {
     pub fn new() -> Self{
@@ -84,7 +109,8 @@ impl MainUiState {
             terminal_text: Vec::new(),
             ui_mode: UiMode::Normal,
             input_buffer: String::new(),
-            exit: false 
+            exit: false,
+            popup: None
         }
     }
 
@@ -171,6 +197,20 @@ impl MainUiState {
         frame.render_widget(Paragraph::new(terminal_lines).block(Block::default().title("Terminal").borders(Borders::ALL).border_set(border::THICK)),mid_layout[0]);
         frame.render_widget(Paragraph::new(instruction_lines).block(Block::default().title("Instructions").borders(Borders::ALL).border_set(border::THICK)), mid_layout[1]);
         frame.render_widget(self, root_layout[2]);
+        if let Some(popup) = self.popup.as_ref() {
+            let frame_size = frame.size();
+
+            let (corner_x, popup_w) = if frame_size.width > POPUP_SIZE.0 {
+                ((frame_size.width>>1) - (POPUP_SIZE.0>>1),POPUP_SIZE.0)
+            } else {(0,frame_size.width)};
+            let (corner_y, popup_h) = if frame_size.height > POPUP_SIZE.1 {
+                ((frame_size.height>>1) - (POPUP_SIZE.1>>1),POPUP_SIZE.1)
+            } else {(0,frame_size.height)};
+            let popup_area = Rect::new(corner_x,corner_y,popup_w,popup_h);
+            //println!("{:?};{:?}",popup_area,frame_size);
+            frame.render_widget(ratatui::widgets::Clear,popup_area);
+            frame.render_widget(popup, popup_area);
+        }
     }
 
     fn handle_input(&mut self) -> io::Result<Option<RuntimeState>> {
@@ -180,7 +220,7 @@ impl MainUiState {
                     UiMode::Normal => {
                         if key.kind == KeyEventKind::Press {
                             match key.code {
-                                KeyCode::Esc => {self.ui_mode = UiMode::Command},
+                                KeyCode::Esc => {self.ui_mode = UiMode::Command; self.popup = Some(PopupMenu::default())},
                                 _ => {}
                             }
                         }
@@ -210,7 +250,7 @@ impl MainUiState {
                                 KeyCode::Char('n') => {self.ui_mode = UiMode::WaitingForCount;
                                     self.input_buffer = String::with_capacity(6)},
                                 KeyCode::Char('r') => {return Ok(Some(RuntimeState::Run))},
-                                KeyCode::Esc => {self.ui_mode = UiMode::Normal;},
+                                KeyCode::Esc => {self.ui_mode = UiMode::Normal; self.popup = None},
                                 _ => {}//By default, ignore all unknown keypresses.
                             }
                         }
@@ -357,6 +397,37 @@ impl Widget for &MainUiState {
                     .borders(Borders::ALL)
                     .border_set(border::THICK))
             .render(area, buf);
+    }
+}
+
+impl Widget for &PopupMenu {
+    fn render(self, area: Rect, buf: &mut Buffer)
+    where
+        Self: Sized {
+            let (title,lines_vec) = match self.menu_mode {
+                MenuMode::Main => (Line::from("Main menu"),vec![
+                    build_menu_line("Change &Runtime options.", MENU_NORMAL_STYLE, MENU_HILIGHT_STYLE),
+                    build_menu_line("Change VM &State.", MENU_NORMAL_STYLE, MENU_HILIGHT_STYLE),
+                    build_menu_line("&File operations.", MENU_NORMAL_STYLE, MENU_HILIGHT_STYLE),
+                    "".into(),
+                    build_menu_line("&Quit", MENU_NORMAL_STYLE, MENU_HILIGHT_STYLE),
+                    build_menu_line("(&E&S&C) to close the menu.", MENU_NORMAL_STYLE, MENU_HILIGHT_STYLE)
+                ]),
+                MenuMode::RunModes => todo!(),
+                MenuMode::VMState => todo!(),
+                MenuMode::FileOptions => todo!(),
+            };
+            ratatui::widgets::Clear::default().render(area, buf);
+            
+            Paragraph::new(lines_vec)
+                .block(Block::default()
+                    .style(MENU_NORMAL_STYLE)
+                    .title(title)
+                    .borders(Borders::RIGHT | Borders::BOTTOM)
+                    .border_set(border::PLAIN)
+                    .title_alignment(Alignment::Center))
+                .alignment(Alignment::Center)
+                .render(area,buf);
     }
 }
 
