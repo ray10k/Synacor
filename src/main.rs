@@ -1,5 +1,6 @@
 mod startup;
 mod machine;
+mod ui_components;
 mod ui;
 mod interface;
 mod thread_interface;

@@ -12,6 +12,7 @@ use crossterm::{execute, terminal::*};
 use circular_buffer::CircularBuffer;
 
 use crate::interface::{UiInterface,ProgramStep,RegisterState,RuntimeState};
+use crate::ui_components::InputHandler;
 
 const TERMINAL_WIDTH:usize = 100;
 
@@ -37,6 +38,15 @@ pub fn setup_panic_hook() {
         let _ = stop_ui();
         original_hook(panic_info);
     }));
+}
+
+
+
+pub struct VirtualMachineUI {
+    /// Tracks recent output from the VM.
+    registered_output:MainUiState,
+    /// Tracks receivers for input events.
+    input_stack:Vec<Box<dyn InputHandler>>
 }
 
 /// Data needed to display the current state of the VM.
