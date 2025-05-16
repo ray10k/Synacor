@@ -44,9 +44,9 @@ pub fn setup_panic_hook() {
 
 pub struct VirtualMachineUI {
     /// Tracks recent output from the VM.
-    registered_output:MainUiState,
+    pub registered_output:MainUiState,
     /// Tracks receivers for input events.
-    input_stack:Vec<Box<dyn InputHandler>>
+    input_stack:Vec<Box<dyn for <'a> InputHandler<'a>>>
 }
 
 /// Data needed to display the current state of the VM.
@@ -122,6 +122,10 @@ impl MainUiState {
             exit: false,
             popup: None
         }
+    }
+
+    pub fn quit(&mut self) {
+        self.exit = true;
     }
 
 

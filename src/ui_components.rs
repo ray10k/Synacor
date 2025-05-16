@@ -1,6 +1,11 @@
+use std::marker::PhantomData;
+
 use crossterm::event::{Event, KeyEventKind, KeyCode};
+use ratatui::layout::Alignment;
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols::border;
-use ratatui::widgets::{self, Block, Widget, Clear, Borders};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph, Widget};
 use ratatui::prelude::{Rect, Buffer};
 
 use crate::ui::VirtualMachineUI;
@@ -9,15 +14,20 @@ pub enum InputDone {
     /// Input handled, but the object can't be disposed yet.
     Keep,
     /// Input handled, and the object is all done.
-    Discard
+    Discard,
+    /// Input not handled, pass it along to somewhere else.
+    Pass
 }
 
-pub trait InputHandler {
+pub trait InputHandler<'a>
+    where &'a Self: Widget,
+    Self:'a{
     fn handle_input(&mut self, event:Event, parent:&mut VirtualMachineUI) -> InputDone;
-    fn render(&self, area: Rect, buf: &mut Buffer);
 }
 
-struct InputField<'a> {
+
+/// Input field UI element, with a callback for when the user presses `enter`.
+pub struct InputField<'a> {
     buffer: String,
     printables: &'a str,
     title: &'a str,
@@ -56,7 +66,7 @@ impl Widget for &InputField<'_> {
     }
 }
 
-impl <'a> InputHandler for InputField<'a> {
+impl <'a> InputHandler<'a> for InputField<'a> {
     fn handle_input(&mut self, event:Event, parent:&mut VirtualMachineUI) -> InputDone{
         if let Event::Key(key_event) = event { // The type of event is "something from the keyboard,"
             if let KeyEventKind::Release = key_event.kind { // more specifically "a key was released,"
@@ -82,8 +92,122 @@ impl <'a> InputHandler for InputField<'a> {
         }
         InputDone::Keep
     }
+}
 
-    fn render(&self, area: Rect, buf: &mut Buffer) {
-        Widget::render(self,area,buf)
+#[derive(Debug,Default)]
+enum MenuMode {
+    #[default]
+    /// Display a list of sub-menus
+    Main,
+    /// Display options for adjusting runtime speed, and limited execution.
+    RunModes,
+    /// Display options for adjusting VM state, such as register contents.
+    VMState,
+    /// Display file-related options, such as saving the current VM state.
+    FileOptions,
+}
+
+/// Pop-up menu with options for manipulating the VM.
+#[derive(Debug,Default)]
+struct PopupMenu<'a> {
+    menu_mode:MenuMode,
+    phantom:PhantomData<&'a ()>
+}
+
+const MENU_NORMAL_STYLE:Style = Style::new().bg(Color::Green).fg(Color::White);
+const MENU_HILIGHT_STYLE:Style = Style::new().bg(Color::LightRed).fg(Color::Black).underline_color(Color::Gray).add_modifier(Modifier::UNDERLINED);
+
+impl Widget for &PopupMenu<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer)
+    where
+        Self: Sized {
+            let (title,lines_vec) = match self.menu_mode {
+                MenuMode::Main => (Line::from("Main menu"),vec![
+                    build_menu_line("Change &Runtime options.", MENU_NORMAL_STYLE, MENU_HILIGHT_STYLE),
+                    build_menu_line("Change VM &State.", MENU_NORMAL_STYLE, MENU_HILIGHT_STYLE),
+                    build_menu_line("&File operations.", MENU_NORMAL_STYLE, MENU_HILIGHT_STYLE),
+                    "".into(),
+                    build_menu_line("&Quit", MENU_NORMAL_STYLE, MENU_HILIGHT_STYLE),
+                    build_menu_line("(&E&S&C) to close the menu.", MENU_NORMAL_STYLE, MENU_HILIGHT_STYLE)
+                ]),
+                MenuMode::RunModes => todo!(),
+                MenuMode::VMState => todo!(),
+                MenuMode::FileOptions => todo!(),
+            };
+            ratatui::widgets::Clear::default().render(area, buf);
+            
+            Paragraph::new(lines_vec)
+                .block(Block::default()
+                    .style(MENU_NORMAL_STYLE)
+                    .title(title)
+                    .borders(Borders::RIGHT | Borders::BOTTOM)
+                    .border_set(border::PLAIN)
+                    .title_alignment(Alignment::Center))
+                .alignment(Alignment::Center)
+                .render(area,buf);
+    }
+}
+
+const AMPERSAND_SIZE:usize = '&'.len_utf8();
+
+///Apply the `normal_style` to `text`, except for the character immediately following an ampersand; those characters
+/// have the `highlight_style` applied instead.
+fn build_menu_line(text:&str, normal_style:Style, highlight_style:Style) -> Line {
+    //Walk over the string, one character at a time. Remember, Rust uses utf-8 encoded strings, can't just walk byte-by-byte.
+    let mark_locations:Vec<usize> = text.chars()
+        //Track where in the string the character is, and start yielding (position,character) pairs.
+        .enumerate()
+        //Keep the positions of all ampersands, drop all other positions.
+        .filter_map(|(position,letter)| {
+            if letter == '&' {Some(position)} else {None}
+        })
+        //Turn the iterator into a vector, by collecting it. The type of `mark_locations` tells Rust to use a Vector in this case.
+        .collect();
+    if mark_locations.len() == 0 { //If there are no ampersands, just style the entire line with the normal style.
+        return Line::from(Span::styled(text,normal_style))
+    }
+
+    let mut part_start:usize = 0;
+    let mut line_parts:Vec<Span> = Vec::with_capacity(1+(2*mark_locations.len()));
+
+    for amp_position in mark_locations.into_iter() {
+        if part_start != amp_position {
+            line_parts.push(Span::styled(&text[part_start..amp_position],normal_style));
+        }
+        let highlight_position = amp_position+AMPERSAND_SIZE;
+        let highlight_end = highlight_position + 1; //will break on any character larger than one byte. TODO: figure out where the next character begins.
+        line_parts.push(Span::styled(&text[amp_position+AMPERSAND_SIZE..highlight_end],highlight_style));
+        part_start = highlight_end;
+    }
+
+    if part_start != text.len() {
+        line_parts.push(Span::styled(&text[part_start..],normal_style));
+    }
+
+    Line::from(line_parts)
+}
+
+impl <'a> InputHandler<'a> for PopupMenu<'a> {
+    fn handle_input(&mut self, event:Event, parent:&mut VirtualMachineUI) -> InputDone {
+        if let Event::Key(key_event) = event { // The type of event is "something from the keyboard,"
+            if let KeyEventKind::Release = key_event.kind { // more specifically "a key was released,"
+                match self.menu_mode {
+                    MenuMode::Main => {
+                        match key_event.code {
+                            KeyCode::Char('r') => {self.menu_mode = MenuMode::RunModes},
+                            KeyCode::Char('s') => {self.menu_mode = MenuMode::VMState},
+                            KeyCode::Char('f') => {self.menu_mode = MenuMode::FileOptions},
+                            KeyCode::Char('q') => {parent.registered_output.quit();},
+                            KeyCode::Esc => {return InputDone::Discard},
+                            _ => ()
+                        }
+                    },
+                    MenuMode::RunModes => todo!(),
+                    MenuMode::VMState => todo!(),
+                    MenuMode::FileOptions => todo!(),
+                }
+            }
+        }
+        InputDone::Keep
     }
 }
