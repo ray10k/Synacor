@@ -1,7 +1,5 @@
 use std::{
-    io::{self, stdout, Stdout}, 
-    panic::{take_hook,set_hook}, 
-    time::Duration};
+    io::{self, stdout, Stdout}, panic::{set_hook, take_hook}, rc::Rc, time::Duration};
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::prelude::*;
@@ -11,7 +9,7 @@ use ratatui::widgets::{block::*,*};
 use crossterm::{execute, terminal::*};
 use circular_buffer::CircularBuffer;
 
-use crate::interface::{UiInterface,ProgramStep,RegisterState,RuntimeState};
+use crate::{interface::{ProgramStep, RegisterState, RuntimeState, UiInterface}, ui_components::InputField};
 use crate::ui_components::InputHandler;
 
 const TERMINAL_WIDTH:usize = 100;
@@ -40,30 +38,26 @@ pub fn setup_panic_hook() {
     }));
 }
 
-
-
-pub struct VirtualMachineUI {
-    /// Tracks recent output from the VM.
-    pub registered_output:MainUiState,
-    /// Tracks receivers for input events.
-    input_stack:Vec<Box<dyn for <'a> InputHandler<'a>>>
-}
-
 /// Data needed to display the current state of the VM.
 #[derive(Debug,Default)]
-pub struct MainUiState {
+pub struct MainUiState<T> where 
+    T:UiInterface {
     /// Recorded recently executed instructions.
     prog_states:Box<CircularBuffer<1024,ProgramStep>>,
     /// Text that has been displayed via the `OUT` opcode.
     terminal_text:Vec<String>,
-    /// Current state of the display.
-    ui_mode:UiMode,
-    /// Holding buffer for user input, prior to sending.
-    input_buffer:String,
-    /// To be removed.
-    exit:bool,
-    /// Pop-up option menu.
-    popup:Option<PopupMenu>
+    /// Communication channel with the VM.
+    vm_channel:Rc<T>,
+    /// Layered input widgets, over the top of the main UI.
+    input_layers:Vec<Box<dyn for <'a> InputHandler<'a>>>,
+    /// Signals when the program should quit.
+    exit:bool
+}
+
+impl std::fmt::Debug for dyn for <'a> InputHandler<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f,"Vec of inputhandlers.")
+    }
 }
 
 /// Pop-up menu with options for manipulating the VM.
@@ -111,16 +105,16 @@ const POLL_TIME:Duration = Duration::from_millis(100);
 const POPUP_SIZE:(u16,u16) = (40,20);
 const MENU_NORMAL_STYLE:Style = Style::new().bg(Color::Green).fg(Color::White);
 const MENU_HILIGHT_STYLE:Style = Style::new().bg(Color::LightRed).fg(Color::Black).underline_color(Color::Gray).add_modifier(Modifier::UNDERLINED);
+const INPUT_PRINTABLES:&str = " abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
 
-impl MainUiState {
-    pub fn new() -> Self{
+impl <T:UiInterface> MainUiState<T> {
+    pub fn new(vm_channel:T) -> Self{
         Self { 
             prog_states: CircularBuffer::<1024,ProgramStep>::boxed(), 
             terminal_text: Vec::new(),
-            ui_mode: UiMode::Normal,
-            input_buffer: String::new(),
+            vm_channel: Rc::new(vm_channel),
+            input_layers: Vec::with_capacity(5),
             exit: false,
-            popup: None
         }
     }
 
@@ -128,20 +122,25 @@ impl MainUiState {
         self.exit = true;
     }
 
+    pub fn stop_vm(&mut self) {
 
-    pub fn main_loop(&mut self, terminal:&mut Tui, input:&mut impl UiInterface) -> io::Result<()> {
+    }
+
+
+    pub fn main_loop(&mut self, terminal:&mut Tui) -> io::Result<()> {
         while !self.exit {
-            let latest_steps = input.read_steps();
+            let latest_steps = self.vm_channel.read_steps();
             self.prog_states.extend(latest_steps);
-            if let Some(line) = input.read_output() {
+            if let Some(line) = self.vm_channel.read_output() {
                 self.prep_string_input(line);
             }
             
-            if input.is_finished() && self.ui_mode == UiMode::Normal {
-                self.ui_mode = UiMode::Paused;
-            } else if input.need_input() && self.ui_mode == UiMode::Normal{
-                self.ui_mode = UiMode::WaitingForInput;
-                self.input_buffer = String::with_capacity(32);
+            if self.vm_channel.need_input() && self.input_layers.len() == 1{
+                let mut vm_clone = self.vm_channel.clone();
+                let in_field = Box::new(
+                    InputField::new("Input", INPUT_PRINTABLES, 256, Box::new(move |res| {Rc::<T>::get_mut(&mut vm_clone)}))
+                );
+                self.input_layers.push(in_field);
             }
 
             match self.ui_mode {

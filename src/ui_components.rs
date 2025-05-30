@@ -8,7 +8,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Widget};
 use ratatui::prelude::{Rect, Buffer};
 
-use crate::ui::VirtualMachineUI;
+use crate::ui::MainUiState;
 
 pub enum InputDone {
     /// Input handled, but the object can't be disposed yet.
@@ -22,7 +22,7 @@ pub enum InputDone {
 pub trait InputHandler<'a>
     where &'a Self: Widget,
     Self:'a{
-    fn handle_input(&mut self, event:Event, parent:&mut VirtualMachineUI) -> InputDone;
+    fn handle_input(&mut self, event:Event, parent:&mut MainUiState) -> InputDone;
 }
 
 
@@ -67,7 +67,7 @@ impl Widget for &InputField<'_> {
 }
 
 impl <'a> InputHandler<'a> for InputField<'a> {
-    fn handle_input(&mut self, event:Event, parent:&mut VirtualMachineUI) -> InputDone{
+    fn handle_input(&mut self, event:Event, parent:&mut MainUiState) -> InputDone{
         if let Event::Key(key_event) = event { // The type of event is "something from the keyboard,"
             if let KeyEventKind::Release = key_event.kind { // more specifically "a key was released,"
                 match key_event.code {
@@ -188,7 +188,7 @@ fn build_menu_line(text:&str, normal_style:Style, highlight_style:Style) -> Line
 }
 
 impl <'a> InputHandler<'a> for PopupMenu<'a> {
-    fn handle_input(&mut self, event:Event, parent:&mut VirtualMachineUI) -> InputDone {
+    fn handle_input(&mut self, event:Event, parent:&mut MainUiState) -> InputDone {
         if let Event::Key(key_event) = event { // The type of event is "something from the keyboard,"
             if let KeyEventKind::Release = key_event.kind { // more specifically "a key was released,"
                 match self.menu_mode {
@@ -197,7 +197,7 @@ impl <'a> InputHandler<'a> for PopupMenu<'a> {
                             KeyCode::Char('r') => {self.menu_mode = MenuMode::RunModes},
                             KeyCode::Char('s') => {self.menu_mode = MenuMode::VMState},
                             KeyCode::Char('f') => {self.menu_mode = MenuMode::FileOptions},
-                            KeyCode::Char('q') => {parent.registered_output.quit();},
+                            KeyCode::Char('q') => {parent.quit();},
                             KeyCode::Esc => {return InputDone::Discard},
                             _ => ()
                         }
@@ -210,4 +210,29 @@ impl <'a> InputHandler<'a> for PopupMenu<'a> {
         }
         InputDone::Keep
     }
+}
+
+struct BaseHandler<'a> {
+    phantom:PhantomData<&'a ()>
+}
+
+impl <'a> InputHandler<'a> for BaseHandler<'a> {
+    fn handle_input(&mut self, event:Event, parent:&mut MainUiState) -> InputDone {
+        //Wait for esc, and tell the main UI to show the menu when that happens.
+        if let Event::Key(key_event) = event {
+            if let KeyEventKind::Release = key_event.kind {
+                match key_event.code {
+                    KeyCode::Esc => {todo!()}
+                    _ => ()
+                }
+            }
+        }
+        return InputDone::Keep;
+    }
+}
+
+impl Widget for &BaseHandler<'_> {
+    fn render(self, _: Rect, __: &mut Buffer)
+    where
+        Self: Sized {}
 }
