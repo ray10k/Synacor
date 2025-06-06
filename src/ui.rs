@@ -1,7 +1,7 @@
 use std::{
     io::{self, stdout, Stdout}, panic::{set_hook, take_hook}, rc::Rc, time::Duration};
 
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::prelude::*;
 use ratatui::symbols::border;
 use ratatui::Frame;
@@ -9,7 +9,7 @@ use ratatui::widgets::{block::*,*};
 use crossterm::{execute, terminal::*};
 use circular_buffer::CircularBuffer;
 
-use crate::{interface::{ProgramStep, RegisterState, RuntimeState, UiInterface}, ui_components::InputField};
+use crate::{interface::{ProgramStep, RegisterState, RuntimeState, UiInterface}, ui_components::{InputField, WrappedHandlers}};
 use crate::ui_components::InputHandler;
 
 const TERMINAL_WIDTH:usize = 100;
@@ -40,7 +40,7 @@ pub fn setup_panic_hook() {
 
 /// Data needed to display the current state of the VM.
 #[derive(Debug,Default)]
-pub struct MainUiState<T> where 
+pub struct MainUiState<'a, T> where 
     T:UiInterface {
     /// Recorded recently executed instructions.
     prog_states:Box<CircularBuffer<1024,ProgramStep>>,
@@ -49,15 +49,9 @@ pub struct MainUiState<T> where
     /// Communication channel with the VM.
     vm_channel:Rc<T>,
     /// Layered input widgets, over the top of the main UI.
-    input_layers:Vec<Box<dyn for <'a> InputHandler<'a>>>,
+    input_layers:Vec<WrappedHandlers<'a>>,
     /// Signals when the program should quit.
     exit:bool
-}
-
-impl std::fmt::Debug for dyn for <'a> InputHandler<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f,"Vec of inputhandlers.")
-    }
 }
 
 /// Pop-up menu with options for manipulating the VM.
@@ -107,7 +101,7 @@ const MENU_NORMAL_STYLE:Style = Style::new().bg(Color::Green).fg(Color::White);
 const MENU_HILIGHT_STYLE:Style = Style::new().bg(Color::LightRed).fg(Color::Black).underline_color(Color::Gray).add_modifier(Modifier::UNDERLINED);
 const INPUT_PRINTABLES:&str = " abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
 
-impl <T:UiInterface> MainUiState<T> {
+impl <T:UiInterface> MainUiState<'_,T> {
     pub fn new(vm_channel:T) -> Self{
         Self { 
             prog_states: CircularBuffer::<1024,ProgramStep>::boxed(), 
@@ -137,13 +131,23 @@ impl <T:UiInterface> MainUiState<T> {
             
             if self.vm_channel.need_input() && self.input_layers.len() == 1{
                 let mut vm_clone = self.vm_channel.clone();
-                let in_field = Box::new(
-                    InputField::new("Input", INPUT_PRINTABLES, 256, Box::new(move |res| {Rc::<T>::get_mut(&mut vm_clone)}))
+                let in_field = WrappedHandlers::InputField(
+                    InputField::new(
+                        "Input", 
+                        INPUT_PRINTABLES, 
+                        256, 
+                        Box::new(move |res| {
+                            Rc::<T>::get_mut(&mut vm_clone)
+                            .expect("VM channel in use!")
+                            .write_input(res)
+                            .expect("Error sending new input.")
+                        })
+                    )
                 );
                 self.input_layers.push(in_field);
             }
 
-            match self.ui_mode {
+            /*match self.ui_mode {
                 UiMode::InputReady => {
                     let terminal_text = format!("> {}\n",&self.input_buffer[..]);
                     self.terminal_text.push(terminal_text);
@@ -163,7 +167,20 @@ impl <T:UiInterface> MainUiState<T> {
                     self.ui_mode = UiMode::Normal;
                 },
                 _ => ()
+            }*/
+
+            let input_available = event::poll(POLL_TIME).unwrap_or(false);
+            if input_available {
+                let event = event::read().expect("Could not decode waiting event.");
+                for input_handler in self.input_layers.iter_mut().rev() { //iterate in *rev*erse! Last added is first to run!
+                    let rm = match input_handler {
+                        WrappedHandlers::BaseHandler(base_handler) => todo!(),
+                        WrappedHandlers::InputField(input_field) => todo!(),
+                        WrappedHandlers::PopupMenu(popup_menu) => todo!(),
+                    };
+                };
             }
+
 
             match self.handle_input() {
                 Ok(Some(x)) => {

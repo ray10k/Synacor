@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::marker::PhantomData;
 
 use crossterm::event::{Event, KeyEventKind, KeyCode};
@@ -8,6 +9,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Widget};
 use ratatui::prelude::{Rect, Buffer};
 
+use crate::interface::UiInterface;
 use crate::ui::MainUiState;
 
 pub enum InputDone {
@@ -19,12 +21,12 @@ pub enum InputDone {
     Pass
 }
 
-pub trait InputHandler<'a>
-    where &'a Self: Widget,
-    Self:'a{
-    fn handle_input(&mut self, event:Event, parent:&mut MainUiState) -> InputDone;
+pub trait InputHandler<'a, T>
+    where &'a Self: Widget + Sized,
+    Self:'a,
+    T:UiInterface{
+    fn handle_input(&mut self, event:Event, parent:&mut MainUiState<T>) -> InputDone;
 }
-
 
 /// Input field UI element, with a callback for when the user presses `enter`.
 pub struct InputField<'a> {
@@ -66,8 +68,19 @@ impl Widget for &InputField<'_> {
     }
 }
 
-impl <'a> InputHandler<'a> for InputField<'a> {
-    fn handle_input(&mut self, event:Event, parent:&mut MainUiState) -> InputDone{
+impl <'a> Debug for InputField<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InputField")
+            .field("buffer", &self.buffer)
+            .field("printables", &self.printables)
+            .field("title", &self.title)
+            .field("max_len", &self.max_len)
+            .field("when_done", &"CALLBACK FUNCTION").finish()
+    }
+}
+
+impl <'a,T:UiInterface> InputHandler<'a,T> for InputField<'a> {
+    fn handle_input(&mut self, event:Event, parent:&mut MainUiState<T>) -> InputDone{
         if let Event::Key(key_event) = event { // The type of event is "something from the keyboard,"
             if let KeyEventKind::Release = key_event.kind { // more specifically "a key was released,"
                 match key_event.code {
@@ -187,8 +200,8 @@ fn build_menu_line(text:&str, normal_style:Style, highlight_style:Style) -> Line
     Line::from(line_parts)
 }
 
-impl <'a> InputHandler<'a> for PopupMenu<'a> {
-    fn handle_input(&mut self, event:Event, parent:&mut MainUiState) -> InputDone {
+impl <'a,T:UiInterface> InputHandler<'a,T> for PopupMenu<'a> {
+    fn handle_input(&mut self, event:Event, parent:&mut MainUiState<T>) -> InputDone {
         if let Event::Key(key_event) = event { // The type of event is "something from the keyboard,"
             if let KeyEventKind::Release = key_event.kind { // more specifically "a key was released,"
                 match self.menu_mode {
@@ -212,12 +225,13 @@ impl <'a> InputHandler<'a> for PopupMenu<'a> {
     }
 }
 
+#[derive(Debug)]
 struct BaseHandler<'a> {
     phantom:PhantomData<&'a ()>
 }
 
-impl <'a> InputHandler<'a> for BaseHandler<'a> {
-    fn handle_input(&mut self, event:Event, parent:&mut MainUiState) -> InputDone {
+impl <'a,T:UiInterface> InputHandler<'a,T> for BaseHandler<'a> {
+    fn handle_input(&mut self, event:Event, parent:&mut MainUiState<T>) -> InputDone {
         //Wait for esc, and tell the main UI to show the menu when that happens.
         if let Event::Key(key_event) = event {
             if let KeyEventKind::Release = key_event.kind {
@@ -235,4 +249,23 @@ impl Widget for &BaseHandler<'_> {
     fn render(self, _: Rect, __: &mut Buffer)
     where
         Self: Sized {}
+}
+
+#[derive(Debug)]
+pub enum WrappedHandlers<'a> {
+    BaseHandler(BaseHandler<'a>),
+    InputField(InputField<'a>),
+    PopupMenu(PopupMenu<'a>),
+}
+
+impl <'a, T> WrappedHandlers<'a> where 
+    T:UiInterface{
+    pub fn handle_input(&mut self, event:Event, parent:&mut MainUiState<T>) -> InputDone
+    where T:UiInterface{
+        match self {
+            WrappedHandlers::BaseHandler(base_handler) => base_handler.handle_input(event, parent),
+            WrappedHandlers::InputField(input_field) => input_field.handle_input(event, parent),
+            WrappedHandlers::PopupMenu(popup_menu) => popup_menu.handle_input(event, parent),
+        }
+    }
 }
