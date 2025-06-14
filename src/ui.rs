@@ -10,7 +10,7 @@ use crossterm::{execute, terminal::*};
 use circular_buffer::CircularBuffer;
 
 use crate::{interface::{ProgramStep, RegisterState, RuntimeState, UiInterface}, ui_components::{InputField, WrappedHandlers}};
-use crate::ui_components::InputHandler;
+use crate::ui_components::InputDestination;
 
 const TERMINAL_WIDTH:usize = 100;
 
@@ -101,7 +101,7 @@ const MENU_NORMAL_STYLE:Style = Style::new().bg(Color::Green).fg(Color::White);
 const MENU_HILIGHT_STYLE:Style = Style::new().bg(Color::LightRed).fg(Color::Black).underline_color(Color::Gray).add_modifier(Modifier::UNDERLINED);
 const INPUT_PRINTABLES:&str = " abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
 
-impl <T:UiInterface> MainUiState<'_,T> {
+impl <'a,T:UiInterface+'a> MainUiState<'a,T> {
     pub fn new(vm_channel:T) -> Self{
         Self { 
             prog_states: CircularBuffer::<1024,ProgramStep>::boxed(), 
@@ -123,27 +123,27 @@ impl <T:UiInterface> MainUiState<'_,T> {
 
     pub fn main_loop(&mut self, terminal:&mut Tui) -> io::Result<()> {
         while !self.exit {
-            let latest_steps = self.vm_channel.read_steps();
-            self.prog_states.extend(latest_steps);
-            if let Some(line) = self.vm_channel.read_output() {
+            let vm_output:Option<String>;
+            {
+                let vm_channel = Rc::get_mut(&mut self.vm_channel).expect("VM channel in use.");
+                self.prog_states.extend(vm_channel.read_steps());
+
+                vm_output = vm_channel.read_output();
+            }
+
+            if let Some(line) = vm_output {
                 self.prep_string_input(line);
             }
             
             if self.vm_channel.need_input() && self.input_layers.len() == 1{
-                let mut vm_clone = self.vm_channel.clone();
                 let in_field = WrappedHandlers::InputField(
                     InputField::new(
                         "Input", 
                         INPUT_PRINTABLES, 
-                        256, 
-                        Box::new(move |res| {
-                            Rc::<T>::get_mut(&mut vm_clone)
-                            .expect("VM channel in use!")
-                            .write_input(res)
-                            .expect("Error sending new input.")
-                        })
-                    )
-                );
+                        256,
+                        InputDestination::Input 
+                        )
+                    );
                 self.input_layers.push(in_field);
             }
 
@@ -173,15 +173,11 @@ impl <T:UiInterface> MainUiState<'_,T> {
             if input_available {
                 let event = event::read().expect("Could not decode waiting event.");
                 for input_handler in self.input_layers.iter_mut().rev() { //iterate in *rev*erse! Last added is first to run!
-                    let rm = match input_handler {
-                        WrappedHandlers::BaseHandler(base_handler) => todo!(),
-                        WrappedHandlers::InputField(input_field) => todo!(),
-                        WrappedHandlers::PopupMenu(popup_menu) => todo!(),
-                    };
+                    let rm = input_handler.handle_input(event.clone());
                 };
             }
 
-
+            /*
             match self.handle_input() {
                 Ok(Some(x)) => {
                     input.write_state(x)?;
@@ -190,6 +186,7 @@ impl <T:UiInterface> MainUiState<'_,T> {
                 Err(e) => return Err(e),
             }
             terminal.draw(|frame| self.render_frame(frame))?;
+            */
         }
         Ok(())
     }

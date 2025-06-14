@@ -18,14 +18,24 @@ pub enum InputDone {
     /// Input handled, and the object is all done.
     Discard,
     /// Input not handled, pass it along to somewhere else.
-    Pass
+    Pass,
+    /// The UI can start shutting down.
+    Quit,
+    /// There is data ready (and implicitly, discard this object)
+    Input(InputDestination,String)
 }
 
-pub trait InputHandler<'a, T>
-    where &'a Self: Widget + Sized,
-    Self:'a,
-    T:UiInterface{
-    fn handle_input(&mut self, event:Event, parent:&mut MainUiState<T>) -> InputDone;
+pub trait InputHandler{
+    fn handle_input(&mut self, event:Event) -> InputDone;
+}
+
+#[derive(Clone, Copy)]
+pub enum InputDestination {
+    /// VM input
+    Input,
+    /// VM program counter
+    ProgramCounter,
+    //TODO: add more things that may need to receive input here.
 }
 
 /// Input field UI element, with a callback for when the user presses `enter`.
@@ -34,12 +44,12 @@ pub struct InputField<'a> {
     printables: &'a str,
     title: &'a str,
     max_len:u16,
-    when_done: Box<dyn Fn(&str)>
+    destination:InputDestination,
 }
 
 impl <'a> InputField<'a> {
-    pub fn new(title:&'a str, printables:&'a str, max_len:u16, when_done:Box<dyn Fn(&str)>) -> Self {
-        return InputField { buffer: String::new(), printables:printables, title:title, max_len:max_len.min(80), when_done: when_done}
+    pub fn new(title:&'a str, printables:&'a str, max_len:u16, destination:InputDestination) -> Self {
+        return InputField { buffer: String::new(), printables:printables, title:title, max_len:max_len.min(80), destination:destination}
     }
 }
 
@@ -79,8 +89,8 @@ impl <'a> Debug for InputField<'a> {
     }
 }
 
-impl <'a,T:UiInterface> InputHandler<'a,T> for InputField<'a> {
-    fn handle_input(&mut self, event:Event, parent:&mut MainUiState<T>) -> InputDone{
+impl <'a> InputHandler for InputField<'a> {
+    fn handle_input(&mut self, event:Event) -> InputDone{
         if let Event::Key(key_event) = event { // The type of event is "something from the keyboard,"
             if let KeyEventKind::Release = key_event.kind { // more specifically "a key was released,"
                 match key_event.code {
@@ -93,8 +103,7 @@ impl <'a,T:UiInterface> InputHandler<'a,T> for InputField<'a> {
                         self.buffer.pop();
                     },
                     KeyCode::Enter => { //handle enter.
-                        (self.when_done)(&self.buffer[..]);
-                        return InputDone::Discard;
+                        return InputDone::Input(self.destination,self.buffer.clone());
                     },
                     KeyCode::Esc => { //and handle escape.
                         todo!("Inform the VMUI that the menu is needed!");
@@ -122,9 +131,9 @@ enum MenuMode {
 
 /// Pop-up menu with options for manipulating the VM.
 #[derive(Debug,Default)]
-struct PopupMenu<'a> {
+struct PopupMenu<'a>{
     menu_mode:MenuMode,
-    phantom:PhantomData<&'a ()>
+    phantom:PhantomData<&'a ()>,
 }
 
 const MENU_NORMAL_STYLE:Style = Style::new().bg(Color::Green).fg(Color::White);
@@ -200,8 +209,8 @@ fn build_menu_line(text:&str, normal_style:Style, highlight_style:Style) -> Line
     Line::from(line_parts)
 }
 
-impl <'a,T:UiInterface> InputHandler<'a,T> for PopupMenu<'a> {
-    fn handle_input(&mut self, event:Event, parent:&mut MainUiState<T>) -> InputDone {
+impl <'a> InputHandler for PopupMenu<'a> {
+    fn handle_input(&mut self, event:Event) -> InputDone{
         if let Event::Key(key_event) = event { // The type of event is "something from the keyboard,"
             if let KeyEventKind::Release = key_event.kind { // more specifically "a key was released,"
                 match self.menu_mode {
@@ -210,7 +219,7 @@ impl <'a,T:UiInterface> InputHandler<'a,T> for PopupMenu<'a> {
                             KeyCode::Char('r') => {self.menu_mode = MenuMode::RunModes},
                             KeyCode::Char('s') => {self.menu_mode = MenuMode::VMState},
                             KeyCode::Char('f') => {self.menu_mode = MenuMode::FileOptions},
-                            KeyCode::Char('q') => {parent.quit();},
+                            KeyCode::Char('q') => {return InputDone::Quit},
                             KeyCode::Esc => {return InputDone::Discard},
                             _ => ()
                         }
@@ -226,12 +235,12 @@ impl <'a,T:UiInterface> InputHandler<'a,T> for PopupMenu<'a> {
 }
 
 #[derive(Debug)]
-struct BaseHandler<'a> {
+struct BaseHandler<'a>{
     phantom:PhantomData<&'a ()>
 }
 
-impl <'a,T:UiInterface> InputHandler<'a,T> for BaseHandler<'a> {
-    fn handle_input(&mut self, event:Event, parent:&mut MainUiState<T>) -> InputDone {
+impl <'a> InputHandler for BaseHandler<'a> {
+    fn handle_input(&mut self, event:Event) -> InputDone {
         //Wait for esc, and tell the main UI to show the menu when that happens.
         if let Event::Key(key_event) = event {
             if let KeyEventKind::Release = key_event.kind {
@@ -258,14 +267,12 @@ pub enum WrappedHandlers<'a> {
     PopupMenu(PopupMenu<'a>),
 }
 
-impl <'a, T> WrappedHandlers<'a> where 
-    T:UiInterface{
-    pub fn handle_input(&mut self, event:Event, parent:&mut MainUiState<T>) -> InputDone
-    where T:UiInterface{
+impl <'a> WrappedHandlers<'a> {
+    pub fn handle_input(&mut self, event:Event) -> InputDone {
         match self {
-            WrappedHandlers::BaseHandler(base_handler) => base_handler.handle_input(event, parent),
-            WrappedHandlers::InputField(input_field) => input_field.handle_input(event, parent),
-            WrappedHandlers::PopupMenu(popup_menu) => popup_menu.handle_input(event, parent),
+            WrappedHandlers::BaseHandler(base_handler) => base_handler.handle_input(event),
+            WrappedHandlers::InputField(input_field) => input_field.handle_input(event),
+            WrappedHandlers::PopupMenu(popup_menu) => popup_menu.handle_input(event),
         }
     }
 }
