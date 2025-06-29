@@ -9,9 +9,6 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Widget};
 use ratatui::prelude::{Rect, Buffer};
 
-use crate::interface::UiInterface;
-use crate::ui::MainUiState;
-
 pub enum InputDone {
     /// Input handled, but the object can't be disposed yet.
     Keep,
@@ -21,6 +18,8 @@ pub enum InputDone {
     Pass,
     /// The UI can start shutting down.
     Quit,
+    /// Open the popup menu (and implicitly, keep this object)
+    Popup,
     /// There is data ready (and implicitly, discard this object)
     Input(InputDestination,String)
 }
@@ -131,11 +130,12 @@ enum MenuMode {
 
 /// Pop-up menu with options for manipulating the VM.
 #[derive(Debug,Default)]
-struct PopupMenu<'a>{
+pub struct PopupMenu<'a>{
     menu_mode:MenuMode,
     phantom:PhantomData<&'a ()>,
 }
 
+const POPUP_SIZE:(u16,u16) = (40,20);
 const MENU_NORMAL_STYLE:Style = Style::new().bg(Color::Green).fg(Color::White);
 const MENU_HILIGHT_STYLE:Style = Style::new().bg(Color::LightRed).fg(Color::Black).underline_color(Color::Gray).add_modifier(Modifier::UNDERLINED);
 
@@ -234,8 +234,8 @@ impl <'a> InputHandler for PopupMenu<'a> {
     }
 }
 
-#[derive(Debug)]
-struct BaseHandler<'a>{
+#[derive(Debug,Default)]
+pub struct BaseHandler<'a>{
     phantom:PhantomData<&'a ()>
 }
 
@@ -245,7 +245,7 @@ impl <'a> InputHandler for BaseHandler<'a> {
         if let Event::Key(key_event) = event {
             if let KeyEventKind::Release = key_event.kind {
                 match key_event.code {
-                    KeyCode::Esc => {todo!()}
+                    KeyCode::Esc => {return InputDone::Popup}
                     _ => ()
                 }
             }
