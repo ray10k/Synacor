@@ -1,7 +1,7 @@
 use std::{
     io::{self, stdout, Stdout}, panic::{set_hook, take_hook}, time::Duration};
 
-use crossterm::event;
+use crossterm::event::{self, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags};
 use ratatui::prelude::*;
 use ratatui::symbols::border;
 use ratatui::Frame;
@@ -18,13 +18,17 @@ pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 
 pub fn start_ui() -> io::Result<Tui> {
     setup_panic_hook();
-    execute!(stdout(),EnterAlternateScreen)?;
+    let mut output_line = stdout();
+    execute!(output_line,EnterAlternateScreen)?;
+    execute!(output_line,PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::REPORT_EVENT_TYPES))?;
     enable_raw_mode()?;
-    Terminal::new(CrosstermBackend::new(stdout()))
+    Terminal::new(CrosstermBackend::new(output_line))
 }
 
 pub fn stop_ui() -> io::Result<()> {
-    execute!(stdout(),LeaveAlternateScreen)?;
+    let mut output_line = stdout();
+    execute!(output_line,PopKeyboardEnhancementFlags)?;
+    execute!(output_line,LeaveAlternateScreen)?;
     disable_raw_mode()?;
     Ok(())
 }
@@ -60,6 +64,7 @@ const INPUT_PRINTABLES:&str = " abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV
 const DECIMAL_PRINTABLES:&str = "0123456789";
 const HEXADECIMAL_PRINTABLES:&str = "0123456789abcdefABCDEF";
 
+#[derive(Debug)]
 enum UiMutation {
     /// Do not change the UI stack.
     None,
@@ -81,8 +86,8 @@ impl <'a,T:UiInterface+'a> MainUiState<'a,T> {
     }
 
     pub fn main_loop(&mut self, terminal:&mut Tui) -> io::Result<()> {
-
         self.input_layers.push(WrappedHandlers::BaseHandler(BaseHandler::default()));
+        self.input_layers.push(WrappedHandlers::PopupMenu(PopupMenu::default()));
 
         while !self.exit {
             self.prog_states.extend(self.vm_channel.read_steps());
@@ -132,8 +137,8 @@ impl <'a,T:UiInterface+'a> MainUiState<'a,T> {
                 };
                 match to_discard {
                     UiMutation::None => (),
-                    UiMutation::Delete(index) => {self.input_layers.remove(index); ()},
-                    UiMutation::Popup => self.input_layers.push(WrappedHandlers::PopupMenu(PopupMenu::default())),
+                    UiMutation::Delete(index) => {self.input_layers.remove(index);()},
+                    UiMutation::Popup => {self.input_layers.push(WrappedHandlers::PopupMenu(PopupMenu::default()))},
                 }
             }
 
@@ -174,6 +179,14 @@ impl <'a,T:UiInterface+'a> MainUiState<'a,T> {
         frame.render_widget(&current_state.registers, root_layout[0]);
         frame.render_widget(Paragraph::new(terminal_lines).block(Block::default().title("Terminal").borders(Borders::ALL).border_set(border::THICK)),mid_layout[0]);
         frame.render_widget(Paragraph::new(instruction_lines).block(Block::default().title("Instructions").borders(Borders::ALL).border_set(border::THICK)), mid_layout[1]);
+
+        for layer in self.input_layers.iter() {
+            match layer {
+                WrappedHandlers::BaseHandler(widget) => frame.render_widget(widget, frame.size()),
+                WrappedHandlers::InputField(widget) => frame.render_widget(widget, frame.size()),
+                WrappedHandlers::PopupMenu(widget) => frame.render_widget(widget, frame.size()),
+            }
+        }
 
     }
 

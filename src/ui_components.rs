@@ -9,6 +9,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Widget};
 use ratatui::prelude::{Rect, Buffer};
 
+#[derive(Debug)]
 pub enum InputDone {
     /// Input handled, but the object can't be disposed yet.
     Keep,
@@ -28,7 +29,7 @@ pub trait InputHandler{
     fn handle_input(&mut self, event:Event) -> InputDone;
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum InputDestination {
     /// VM input
     Input,
@@ -91,24 +92,22 @@ impl <'a> Debug for InputField<'a> {
 impl <'a> InputHandler for InputField<'a> {
     fn handle_input(&mut self, event:Event) -> InputDone{
         if let Event::Key(key_event) = event { // The type of event is "something from the keyboard,"
-            if let KeyEventKind::Release = key_event.kind { // more specifically "a key was released,"
-                match key_event.code {
-                    KeyCode::Char(c) => { //Handle a letter, number or other printable thing.
-                        if self.printables.contains(c) {
-                            self.buffer.push(c);
-                        }
-                    },
-                    KeyCode::Backspace => { //handle backspace.
-                        self.buffer.pop();
-                    },
-                    KeyCode::Enter => { //handle enter.
-                        return InputDone::Input(self.destination,self.buffer.clone());
-                    },
-                    KeyCode::Esc => { //and handle escape.
-                        todo!("Inform the VMUI that the menu is needed!");
+            match key_event.code {
+                KeyCode::Char(c) => { //Handle a letter, number or other printable thing.
+                    if self.printables.contains(c) {
+                        self.buffer.push(c);
                     }
-                    _ => {} //ignore all other keys.
+                },
+                KeyCode::Backspace => { //handle backspace.
+                    self.buffer.pop();
+                },
+                KeyCode::Enter => { //handle enter.
+                    return InputDone::Input(self.destination,self.buffer.clone());
+                },
+                KeyCode::Esc => { //and handle escape.
+                    todo!("Inform the VMUI that the menu is needed!");
                 }
+                _ => {} //ignore all other keys.
             }
         }
         InputDone::Keep
@@ -143,6 +142,11 @@ impl Widget for &PopupMenu<'_> {
     fn render(self, area: Rect, buf: &mut Buffer)
     where
         Self: Sized {
+            let x = (area.width - POPUP_SIZE.0) / 2;
+            let y = (area.height - POPUP_SIZE.1) / 2;
+
+            let sub_frame = Rect::new(x, y, POPUP_SIZE.0, POPUP_SIZE.1);
+
             let (title,lines_vec) = match self.menu_mode {
                 MenuMode::Main => (Line::from("Main menu"),vec![
                     build_menu_line("Change &Runtime options.", MENU_NORMAL_STYLE, MENU_HILIGHT_STYLE),
@@ -156,7 +160,10 @@ impl Widget for &PopupMenu<'_> {
                 MenuMode::VMState => todo!(),
                 MenuMode::FileOptions => todo!(),
             };
-            ratatui::widgets::Clear::default().render(area, buf);
+
+
+            ratatui::widgets::Clear::default().render(sub_frame, buf);
+
             
             Paragraph::new(lines_vec)
                 .block(Block::default()
@@ -166,7 +173,7 @@ impl Widget for &PopupMenu<'_> {
                     .border_set(border::PLAIN)
                     .title_alignment(Alignment::Center))
                 .alignment(Alignment::Center)
-                .render(area,buf);
+                .render(sub_frame,buf);
     }
 }
 
@@ -212,22 +219,20 @@ fn build_menu_line(text:&str, normal_style:Style, highlight_style:Style) -> Line
 impl <'a> InputHandler for PopupMenu<'a> {
     fn handle_input(&mut self, event:Event) -> InputDone{
         if let Event::Key(key_event) = event { // The type of event is "something from the keyboard,"
-            if let KeyEventKind::Release = key_event.kind { // more specifically "a key was released,"
-                match self.menu_mode {
-                    MenuMode::Main => {
-                        match key_event.code {
-                            KeyCode::Char('r') => {self.menu_mode = MenuMode::RunModes},
-                            KeyCode::Char('s') => {self.menu_mode = MenuMode::VMState},
-                            KeyCode::Char('f') => {self.menu_mode = MenuMode::FileOptions},
-                            KeyCode::Char('q') => {return InputDone::Quit},
-                            KeyCode::Esc => {return InputDone::Discard},
-                            _ => ()
-                        }
-                    },
-                    MenuMode::RunModes => todo!(),
-                    MenuMode::VMState => todo!(),
-                    MenuMode::FileOptions => todo!(),
-                }
+            match self.menu_mode {
+                MenuMode::Main => {
+                    match key_event.code {
+                        KeyCode::Char('r') => {self.menu_mode = MenuMode::RunModes},
+                        KeyCode::Char('s') => {self.menu_mode = MenuMode::VMState},
+                        KeyCode::Char('f') => {self.menu_mode = MenuMode::FileOptions},
+                        KeyCode::Char('q') => {return InputDone::Quit},
+                        KeyCode::Esc => {return InputDone::Discard},
+                        _ => ()
+                    }
+                },
+                MenuMode::RunModes => todo!(),
+                MenuMode::VMState => todo!(),
+                MenuMode::FileOptions => todo!(),
             }
         }
         InputDone::Keep
@@ -243,11 +248,9 @@ impl <'a> InputHandler for BaseHandler<'a> {
     fn handle_input(&mut self, event:Event) -> InputDone {
         //Wait for esc, and tell the main UI to show the menu when that happens.
         if let Event::Key(key_event) = event {
-            if let KeyEventKind::Release = key_event.kind {
-                match key_event.code {
-                    KeyCode::Esc => {return InputDone::Popup}
-                    _ => ()
-                }
+            match key_event.code {
+                KeyCode::Esc => {return InputDone::Popup}
+                _ => ()
             }
         }
         return InputDone::Keep;
