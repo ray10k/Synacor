@@ -14,7 +14,7 @@ use ratatui::symbols::border;
 use ratatui::widgets::{block::*, *};
 use ratatui::Frame;
 
-use crate::ui_components::InputDestination;
+use crate::{interface::VmInstruction, ui_components::InputDestination};
 use crate::{
     interface::{ProgramStep, RegisterState, UiInterface},
     ui_components::{BaseHandler, InputField, PopupMenu, WrappedHandlers},
@@ -132,7 +132,6 @@ impl<'a, T: UiInterface + 'a> MainUiState<'a, T> {
                             to_discard = UiMutation::Delete(index);
                             break;
                         }
-                        //crate::ui_components::InputDone::Pass => continue,
                         crate::ui_components::InputDone::Quit => {
                             self.exit = true;
                             break;
@@ -140,16 +139,40 @@ impl<'a, T: UiInterface + 'a> MainUiState<'a, T> {
                         crate::ui_components::InputDone::Input(input_destination, value) => {
                             match input_destination {
                                 InputDestination::Input => self.vm_channel.write_input(&value).expect("Could not write input to VM"),
-                                InputDestination::ProgramCounter => todo!("Implement setting the program counter here."),
-                                InputDestination::PauseAfterCount => todo!("Implement pausing execution after # steps here."),
-                                InputDestination::PauseAfterAddress => todo!("Implement pausing after address # is executed here."),
-                                InputDestination::SetDelay => todo!("Implement setting instruction delay here."),
-                                InputDestination::RegisterNumber => todo!("Implement picking a register here."),
-                                InputDestination::RegisterValue => todo!("Implement picking a register value here."),
+                                InputDestination::ProgramCounter => {
+                                    let addr = u16::from_str_radix(&value[..],16).expect("Malformed number.");
+                                    self.vm_channel.write_state(VmInstruction::SetProgramCounter(addr)).expect("Could not write instruction to VM");
+                                },
+                                InputDestination::PauseAfterCount => {
+                                    let count = value.parse().expect("Malformed number.");
+                                    self.vm_channel.write_state(VmInstruction::RunForSteps(count)).expect("Could not write instruction to VM.");
+                                },
+                                InputDestination::PauseAfterAddress => {
+                                    let addr = u16::from_str_radix(&value[..],16).expect("Malformed number.");
+                                    self.vm_channel.write_state(VmInstruction::RunUntilAddress(addr)).expect("Could not write instruction to VM.");
+                                },
+                                InputDestination::SetDelay => {
+                                    let delay = value.parse().expect("Malformed number.");
+                                    self.vm_channel.write_state(VmInstruction::SetCommandDelay(delay, true)).expect("Could not write instruction to VM.");
+                                },
+                                InputDestination::RegisterNumber => {
+                                    let register = value.parse().expect("Malformed number.");
+                                    self.input_layers.push(WrappedHandlers::input_field("Register value", "0123456789abcdefABCDEF", 4, InputDestination::RegisterValue(register)));
+                                },
+                                InputDestination::RegisterValue(reg) => {
+                                    let new_value = u16::from_str_radix(&value[..],16).expect("Malformed number.");
+                                    self.vm_channel.write_state(VmInstruction::SetRegister(reg, new_value)).expect("Could not write instruction to VM");
+                                },
                                 InputDestination::InputPrefill => todo!("implement loading a file and putting its contents into the input buffer here."),
-                                InputDestination::SaveMemory => todo!("Implement saving the current memory state here."),
-                                InputDestination::TraceOperations => todo!("Implement operation tracing here."),
-                                InputDestination::TraceStop => todo!("implement halting operation tracing here."),
+                                InputDestination::SaveMemory => {
+                                    self.vm_channel.write_state(VmInstruction::SaveMemory(value)).expect("Could not write instruction to VM.");
+                                },
+                                InputDestination::TraceOperations => {
+                                    self.vm_channel.write_state(VmInstruction::TraceOperations(value)).expect("Could not write instruction to VM.");
+                                },
+                                InputDestination::TraceStop => {
+                                    self.vm_channel.write_state(VmInstruction::TraceStop).expect("Could not write instruction to VM.");
+                                },
                             }
                             to_discard = UiMutation::Delete(index);
                             break;
@@ -158,6 +181,14 @@ impl<'a, T: UiInterface + 'a> MainUiState<'a, T> {
                             to_discard = UiMutation::Push(handler);
                             break;
                         }
+                        crate::ui_components::InputDone::Run => {
+                            self.vm_channel.write_state(VmInstruction::Run).expect("Could not write instruction to VM.");
+                            break;
+                        }
+                        crate::ui_components::InputDone::Step => {
+                            self.vm_channel.write_state(VmInstruction::SingleStep).expect("Could not write instruction to VM.");
+                            break;
+                        },
                     }
                 }
                 match to_discard {

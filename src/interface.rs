@@ -1,12 +1,17 @@
 
 #[derive(PartialEq)]
-pub enum RuntimeState {
+pub enum VmInstruction {
     Run,
     Pause,
     SingleStep,
     RunForSteps(usize),
     RunUntilAddress(u16),
     SetCommandDelay(usize,bool),
+    SetProgramCounter(u16),
+    SetRegister(u8,u16),
+    SaveMemory(String),
+    TraceOperations(String),
+    TraceStop,
     Terminate,
 }
 
@@ -52,7 +57,7 @@ pub trait UiInterface {
     fn need_input(&self) -> bool;
     fn is_finished(&self) -> bool;
     fn write_input(&mut self, input:&str) -> std::io::Result<()>;
-    fn write_state(&mut self, input:RuntimeState) -> std::io::Result<()>;
+    fn write_state(&mut self, input:VmInstruction) -> std::io::Result<()>;
 }
 
 pub trait VmInterface {
@@ -60,6 +65,6 @@ pub trait VmInterface {
     fn write_step(&mut self, step:ProgramStep) -> std::io::Result<()>;
     fn runtime_err(&mut self, message:String);
     fn read_input(&mut self) -> String;
-    fn read_state(&mut self, blocking:bool) -> Option<RuntimeState>;
+    fn read_state(&mut self, blocking:bool) -> Option<VmInstruction>;
 }
 

@@ -31,7 +31,7 @@ pub fn make_interfaces() -> (ThreadUiInterface,ThreadVmInterface) {
 pub struct ThreadUiInterface {
     /* tbd */
     need_input:Arc<AtomicBool>,
-    state_outgoing:Sender<RuntimeState>,
+    state_outgoing:Sender<VmInstruction>,
     input_outgoing:Sender<String>,
     output_incoming:Receiver<char>,
     steps_incoming:Receiver<ProgramStep>,
@@ -40,7 +40,7 @@ pub struct ThreadUiInterface {
 pub struct ThreadVmInterface {
     /* tbd */
     need_input: Arc<AtomicBool>,
-    state_incoming:Receiver<RuntimeState>,
+    state_incoming:Receiver<VmInstruction>,
     input_incoming:Receiver<String>,
     output_outgoing:Sender<char>,
     steps_outgoing:Sender<ProgramStep>,
@@ -83,7 +83,7 @@ impl UiInterface for ThreadUiInterface {
         }
     }
 
-    fn write_state(&mut self, input:RuntimeState) -> std::io::Result<()> {
+    fn write_state(&mut self, input:VmInstruction) -> std::io::Result<()> {
         let res = self.state_outgoing.send(input);
         match res {
             Ok(_) => Ok(()),
@@ -135,7 +135,7 @@ impl VmInterface for ThreadVmInterface {
             Err(_) => String::from(""),
         }
     }
-    fn read_state(&mut self, blocking:bool) -> Option<RuntimeState> {
+    fn read_state(&mut self, blocking:bool) -> Option<VmInstruction> {
         if blocking {
             match self.state_incoming.recv() {
                 Ok(s) => Some(s),

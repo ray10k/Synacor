@@ -23,6 +23,10 @@ pub enum InputDone {
     Push(WrappedHandlers<'static>),
     /// There is data ready (and implicitly, discard this object)
     Input(InputDestination, String),
+    /// Special case: run the VM (and implicitly, keep this object.)
+    Run,
+    /// Special case: single-step the VM (and implicitly, keep this object.)
+    Step,
 }
 
 pub trait InputHandler {
@@ -43,8 +47,8 @@ pub enum InputDestination {
     ProgramCounter,
     /// Choose register
     RegisterNumber,
-    /// Set register value
-    RegisterValue,
+    /// Set register value. Expects the target register number.
+    RegisterValue(u8),
     /// File to use as input source
     InputPrefill,
     /// File to save current memory state to
@@ -82,6 +86,9 @@ impl<'a> InputField<'a> {
     }
 }
 
+const INPUT_FIELD_STYLE:Style = Style::new().bg(Color::Indexed(116)).fg(Color::LightBlue);
+const INPUT_BORDER_STYLE:Style = Style::new().bg(Color::Indexed(116)).fg(Color::Green);
+
 impl Widget for &InputField<'_> {
     fn render(self, area: Rect, buf: &mut Buffer)
     where
@@ -92,7 +99,7 @@ impl Widget for &InputField<'_> {
         // minus 2 (for the border). Just kinda done playing nice :sweat_smile:
         // First, how wide will the box be? Should be enough to hold the title, ideally, as well as the text to be entered.
         let target_width = (self.max_len as usize)
-            .max(self.title.len())
+            .max(self.title.len() + 4) // +2 to adjust to the borders, another +2 because it gets removed later.
             .min(area.width as usize) as u16
             - 2;
         // Second: how tall? Will need at least 3 lines; top border (with title), text field, bottom border.
@@ -110,7 +117,14 @@ impl Widget for &InputField<'_> {
             .title(self.title)
             .borders(Borders::ALL)
             .border_set(border::DOUBLE)
+            .style(INPUT_BORDER_STYLE)
             .render(field_area, buf);
+
+        Line::from(vec![
+            ">".into(),
+            (&self.buffer[..]).into()
+        ]).style(INPUT_FIELD_STYLE)
+        .render(Rect::new(field_area.x+1, field_area.y+1, field_area.width-2, 1),buf);
     }
 }
 
@@ -147,7 +161,7 @@ impl<'a> InputHandler for InputField<'a> {
                 }
                 KeyCode::Esc => {
                     //and handle escape.
-                    todo!("Inform the VMUI that the menu is needed!");
+                    return InputDone::Discard;
                 }
                 _ => {} //ignore all other keys.
             }
@@ -477,6 +491,12 @@ impl<'a> InputHandler for BaseHandler<'a> {
             match key_event.code {
                 KeyCode::Esc => {
                     return InputDone::Push(WrappedHandlers::PopupMenu(PopupMenu::default()))
+                },
+                KeyCode::Char(' ') => {
+                    return InputDone::Run;
+                },
+                KeyCode::Tab => {
+                    return InputDone::Step;
                 }
                 _ => (),
             }
