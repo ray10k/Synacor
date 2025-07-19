@@ -18,6 +18,19 @@ pub struct VirtualMachineStep<'a> {
     machine: &'a mut VirtualMachine,
 }
 
+enum RuntimeState {
+    /// The VM is actively executing instructions.
+    Running,
+    /// The VM is suspended, performing no actions.
+    Paused,
+    /// The VM is running, but will suspend after the given number of instructions are executed.
+    PauseAfterSteps(usize),
+    /// The VM is running, but will suspend after executing an instruction starting at or containing the given address.
+    PauseAfterAddress(usize),
+    /// The VM is permanently stopped; the program is in a state that it cannot continue from.
+    Terminated,
+}
+
 #[derive(Debug)]
 pub enum RuntimeError {
     ErrFinished,
@@ -319,13 +332,65 @@ impl VirtualMachine {
     }
 
     pub fn run_program(&mut self, output: &mut impl VmInterface) {
+        use RuntimeState::*;
         use VmInstruction::*;
-        let mut run_state = Pause;
+        let mut run_state = Paused;
         let mut delay: usize = 0;
         loop {
-            run_state = output.read_state(run_state == Pause).unwrap_or(run_state);
+            //Check if fetching an instruction from the UI should block. That is, if the current state
+            // of the VM is suspended, wait until the UI tells the VM to get going again.
+            let must_block = match run_state {
+                Running => false,
+                Paused => true,
+                PauseAfterSteps(0) => true,
+                PauseAfterSteps(_) => false,
+                PauseAfterAddress(_) => false,
+                Terminated => break,
+            };
+            let instruction = output.read_state(must_block);
+
+            //Parse what instruction the UI thread has sent, if any, and update the run state as needed.
+            match instruction {
+                None => (),
+                Some(Run) => run_state = Running,
+                Some(Pause) => {
+                    run_state = Paused;
+                    continue;
+                }
+                Some(SingleStep) => run_state = PauseAfterSteps(1),
+                Some(RunForSteps(steps)) => run_state = PauseAfterSteps(steps),
+                Some(RunUntilAddress(addr)) => run_state = PauseAfterAddress(addr as usize),
+                Some(SetCommandDelay(new_delay, pause_after)) => {
+                    delay = new_delay;
+                    if pause_after {
+                        run_state = Paused;
+                    }
+                    continue;
+                }
+                Some(Terminate) => break,
+                Some(SetProgramCounter(addr)) => {
+                    self.program_counter = addr as usize;
+                    continue;
+                }
+                Some(SetRegister(reg, value)) => {
+                    if reg <= 7 {
+                        self.registers[reg as usize] = value;
+                    }
+                    continue;
+                }
+                Some(SaveMemory(path)) => {
+                    self.dump_memory_to_file(&path[..])
+                        .expect("Could not save memory file.");
+                    continue;
+                }
+                Some(TraceOperations(_)) => todo!("Implement operation tracing."),
+                Some(TraceStop) => todo!("Implement operation tracing."),
+            }
 
             let reg_state = self.register_snapshot();
+            //theoretically, an instruction can overwrite the memory location that the instruction itself is
+            // stored at. So, snap-shot the instruction *before* executing it.
+            let instr = self.memory[reg_state.program_counter as usize];
 
             match self.operation() {
                 Ok((inst, operands, to_print)) => {
@@ -335,7 +400,7 @@ impl VirtualMachine {
                     for pv in operands {
                         repr.push_str(&format!(" {pv}")[..]);
                     }
-                    let _ = output.write_step(ProgramStep::step(reg_state, repr));
+                    let _ = output.write_step(ProgramStep::step(reg_state.clone(), repr));
                     if let Some(to_print) = to_print {
                         let _ = output.write_output(to_print);
                     }
@@ -351,57 +416,31 @@ impl VirtualMachine {
                     );
                 }
                 Err(RuntimeError::ErrFinished) => {
-                    let _ = output.write_step(ProgramStep::step(reg_state, "HALT".into()));
-                    run_state = VmInstruction::Terminate;
+                    let _ = output.write_step(ProgramStep::step(reg_state.clone(), "HALT".into()));
+                    run_state = Terminated;
                 }
                 Err(e) => {
                     output.runtime_err(format!("{e}"));
                 }
             }
 
-            match run_state {
-                Run => (),
-                Pause => continue,
-                SingleStep | RunForSteps(1) => {
-                    run_state = Pause;
-                    continue;
-                }
-                RunForSteps(steps) => run_state = RunForSteps(steps - 1),
-                RunUntilAddress(addr) => {
-                    let inst_start = (self.program_counter & 0xffff) as u16;
-                    let inst_end = inst_start
-                        + (Operation::from(self.memory[self.program_counter]).operands());
-                    if inst_start == addr || (inst_start < addr && addr <= inst_end) {
-                        run_state = Pause;
+            match &run_state {
+                Running => (),
+                Paused | PauseAfterSteps(1 | 0) => continue,
+                PauseAfterSteps(x) => run_state = PauseAfterSteps(x - 1),
+                PauseAfterAddress(addr) => {
+                    //using the information in the register-snapshot, determine if the previously executed
+                    //instruction 'hit' the specified address.
+                    let addr = (addr & 0xffff) as u16;
+                    let instr_start = reg_state.program_counter;
+                    let instr_stop = instr_start + Operation::from(instr).operands();
+                    if instr_start >= addr as u16 && addr < instr_stop {
+                        run_state = Paused;
+                        continue;
                     }
-                }
-                SetCommandDelay(new_delay, pause_after) => {
-                    delay = new_delay;
-                    if pause_after {
-                        run_state = VmInstruction::Pause;
-                    } else {
-                        run_state = VmInstruction::Run;
-                    }
-                }
-                Terminate => break,
-                SetProgramCounter(addr) => {
-                    self.program_counter = addr as usize;
-                    run_state = VmInstruction::Pause
-                }
-                SetRegister(reg, value) => {
-                    if reg <= 7 {
-                        self.registers[reg as usize] = value;
-                    }
-                    run_state = VmInstruction::Pause;
-                }
-                SaveMemory(path) => {
-                    self.dump_memory_to_file(&path[..])
-                        .expect("Could not save memory file.");
-                    run_state = VmInstruction::Pause
-                }
-                TraceOperations(_) => todo!("Implement operation tracing."),
-                TraceStop => todo!("Implement operation tracing."),
-            }
+                },
+                Terminated => break,
+            };
 
             if delay > 0 {
                 std::thread::sleep(std::time::Duration::from_millis(
