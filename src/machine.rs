@@ -357,6 +357,9 @@ impl VirtualMachine {
                     run_state = Paused;
                     continue;
                 }
+                Some(Toggle) => {
+                    todo!("Toggle between running/paused states.");
+                }
                 Some(SingleStep) => run_state = PauseAfterSteps(1),
                 Some(RunForSteps(steps)) => run_state = PauseAfterSteps(steps),
                 Some(RunUntilAddress(addr)) => run_state = PauseAfterAddress(addr as usize),

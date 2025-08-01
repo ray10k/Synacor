@@ -1,5 +1,6 @@
 use std::{
-    io::{self, stdout, Stdout},
+    fs::File,
+    io::{self, stdout, Read, Result as IoResult, Stdout},
     panic::{set_hook, take_hook},
     time::Duration,
 };
@@ -115,6 +116,7 @@ impl<'a, T: UiInterface + 'a> MainUiState<'a, T> {
                     INPUT_PRINTABLES,
                     256,
                     InputDestination::Input,
+                    true,
                 ));
                 self.input_layers.push(in_field);
             }
@@ -138,41 +140,71 @@ impl<'a, T: UiInterface + 'a> MainUiState<'a, T> {
                         }
                         crate::ui_components::InputDone::Input(input_destination, value) => {
                             match input_destination {
-                                InputDestination::Input => self.vm_channel.write_input(&value).expect("Could not write input to VM"),
+                                InputDestination::Input => self
+                                    .vm_channel
+                                    .write_input(&value)
+                                    .expect("Could not write input to VM"),
                                 InputDestination::ProgramCounter => {
-                                    let addr = u16::from_str_radix(&value[..],16).expect("Malformed number.");
-                                    self.vm_channel.write_state(VmInstruction::SetProgramCounter(addr)).expect("Could not write instruction to VM");
-                                },
+                                    let addr = u16::from_str_radix(&value[..], 16)
+                                        .expect("Malformed number.");
+                                    self.vm_channel
+                                        .write_state(VmInstruction::SetProgramCounter(addr))
+                                        .expect("Could not write instruction to VM");
+                                }
                                 InputDestination::PauseAfterCount => {
                                     let count = value.parse().expect("Malformed number.");
-                                    self.vm_channel.write_state(VmInstruction::RunForSteps(count)).expect("Could not write instruction to VM.");
-                                },
+                                    self.vm_channel
+                                        .write_state(VmInstruction::RunForSteps(count))
+                                        .expect("Could not write instruction to VM.");
+                                }
                                 InputDestination::PauseAfterAddress => {
-                                    let addr = u16::from_str_radix(&value[..],16).expect("Malformed number.");
-                                    self.vm_channel.write_state(VmInstruction::RunUntilAddress(addr)).expect("Could not write instruction to VM.");
-                                },
+                                    let addr = u16::from_str_radix(&value[..], 16)
+                                        .expect("Malformed number.");
+                                    self.vm_channel
+                                        .write_state(VmInstruction::RunUntilAddress(addr))
+                                        .expect("Could not write instruction to VM.");
+                                }
                                 InputDestination::SetDelay => {
                                     let delay = value.parse().expect("Malformed number.");
-                                    self.vm_channel.write_state(VmInstruction::SetCommandDelay(delay, true)).expect("Could not write instruction to VM.");
-                                },
+                                    self.vm_channel
+                                        .write_state(VmInstruction::SetCommandDelay(delay, true))
+                                        .expect("Could not write instruction to VM.");
+                                }
                                 InputDestination::RegisterNumber => {
                                     let register = value.parse().expect("Malformed number.");
-                                    self.input_layers.push(WrappedHandlers::input_field("Register value", "0123456789abcdefABCDEF", 4, InputDestination::RegisterValue(register)));
-                                },
+                                    self.input_layers.push(WrappedHandlers::input_field(
+                                        "Register value",
+                                        "0123456789abcdefABCDEF",
+                                        4,
+                                        InputDestination::RegisterValue(register),
+                                        false,
+                                    ));
+                                }
                                 InputDestination::RegisterValue(reg) => {
-                                    let new_value = u16::from_str_radix(&value[..],16).expect("Malformed number.");
-                                    self.vm_channel.write_state(VmInstruction::SetRegister(reg, new_value)).expect("Could not write instruction to VM");
-                                },
-                                InputDestination::InputPrefill => todo!("implement loading a file and putting its contents into the input buffer here."),
+                                    let new_value = u16::from_str_radix(&value[..], 16)
+                                        .expect("Malformed number.");
+                                    self.vm_channel
+                                        .write_state(VmInstruction::SetRegister(reg, new_value))
+                                        .expect("Could not write instruction to VM");
+                                }
+                                InputDestination::InputPrefill => {
+                                    let _ = self.load_input_file(&value);
+                                }
                                 InputDestination::SaveMemory => {
-                                    self.vm_channel.write_state(VmInstruction::SaveMemory(value)).expect("Could not write instruction to VM.");
-                                },
+                                    self.vm_channel
+                                        .write_state(VmInstruction::SaveMemory(value))
+                                        .expect("Could not write instruction to VM.");
+                                }
                                 InputDestination::TraceOperations => {
-                                    self.vm_channel.write_state(VmInstruction::TraceOperations(value)).expect("Could not write instruction to VM.");
-                                },
+                                    self.vm_channel
+                                        .write_state(VmInstruction::TraceOperations(value))
+                                        .expect("Could not write instruction to VM.");
+                                }
                                 InputDestination::TraceStop => {
-                                    self.vm_channel.write_state(VmInstruction::TraceStop).expect("Could not write instruction to VM.");
-                                },
+                                    self.vm_channel
+                                        .write_state(VmInstruction::TraceStop)
+                                        .expect("Could not write instruction to VM.");
+                                }
                             }
                             to_discard = UiMutation::Delete(index);
                             break;
@@ -182,13 +214,17 @@ impl<'a, T: UiInterface + 'a> MainUiState<'a, T> {
                             break;
                         }
                         crate::ui_components::InputDone::Run => {
-                            self.vm_channel.write_state(VmInstruction::Run).expect("Could not write instruction to VM.");
+                            self.vm_channel
+                                .write_state(VmInstruction::Run)
+                                .expect("Could not write instruction to VM.");
                             break;
                         }
                         crate::ui_components::InputDone::Step => {
-                            self.vm_channel.write_state(VmInstruction::SingleStep).expect("Could not write instruction to VM.");
+                            self.vm_channel
+                                .write_state(VmInstruction::SingleStep)
+                                .expect("Could not write instruction to VM.");
                             break;
-                        },
+                        }
                     }
                 }
                 match to_discard {
@@ -209,7 +245,11 @@ impl<'a, T: UiInterface + 'a> MainUiState<'a, T> {
     fn render_frame(&self, frame: &mut Frame) {
         let root_layout = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Length(4), Constraint::Fill(1)])
+            .constraints(vec![
+                Constraint::Length(4),
+                Constraint::Fill(1),
+                Constraint::Length(4),
+            ])
             .split(frame.size());
         let mid_layout = Layout::default()
             .direction(Direction::Horizontal)
@@ -262,6 +302,17 @@ impl<'a, T: UiInterface + 'a> MainUiState<'a, T> {
             ),
             mid_layout[1],
         );
+        frame.render_widget(
+            Paragraph::new(
+                "(ESC) -> Open the menu\t. -> execute a single step\n(SPACE) -> pause/run",
+            )
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_set(border::THICK),
+            ),
+            root_layout[2],
+        );
 
         for layer in self.input_layers.iter() {
             match layer {
@@ -308,6 +359,19 @@ impl<'a, T: UiInterface + 'a> MainUiState<'a, T> {
                 }
             }
         }
+    }
+
+    fn load_input_file(&mut self, file_path: &str) -> IoResult<()> {
+        let mut file = File::open(file_path)?;
+        let mut file_data = String::new();
+        file.read_to_string(&mut file_data)?;
+
+        //The input-lines need to have their order reversed here!
+        file_data
+            .split('\x0a')
+            .rev()
+            .map(|instruction_line| self.vm_channel.write_input(&format!("{}\x0a",instruction_line)))
+            .collect()
     }
 }
 

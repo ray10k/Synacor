@@ -3,6 +3,7 @@
 pub enum VmInstruction {
     Run,
     Pause,
+    Toggle,
     SingleStep,
     RunForSteps(usize),
     RunUntilAddress(u16),

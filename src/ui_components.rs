@@ -67,6 +67,7 @@ pub struct InputField<'a> {
     title: &'a str,
     max_len: u16,
     destination: InputDestination,
+    is_input: bool,
 }
 
 impl<'a> InputField<'a> {
@@ -75,6 +76,7 @@ impl<'a> InputField<'a> {
         printables: &'a str,
         max_len: u16,
         destination: InputDestination,
+        locked: bool,
     ) -> Self {
         return InputField {
             buffer: String::new(),
@@ -82,12 +84,13 @@ impl<'a> InputField<'a> {
             title: title,
             max_len: max_len.min(80),
             destination: destination,
+            is_input: locked,
         };
     }
 }
 
-const INPUT_FIELD_STYLE:Style = Style::new().bg(Color::Indexed(116)).fg(Color::LightBlue);
-const INPUT_BORDER_STYLE:Style = Style::new().bg(Color::Indexed(116)).fg(Color::Green);
+const INPUT_FIELD_STYLE: Style = Style::new().bg(Color::Indexed(116)).fg(Color::LightBlue);
+const INPUT_BORDER_STYLE: Style = Style::new().bg(Color::Indexed(116)).fg(Color::Green);
 
 impl Widget for &InputField<'_> {
     fn render(self, area: Rect, buf: &mut Buffer)
@@ -120,11 +123,12 @@ impl Widget for &InputField<'_> {
             .style(INPUT_BORDER_STYLE)
             .render(field_area, buf);
 
-        Line::from(vec![
-            ">".into(),
-            (&self.buffer[..]).into()
-        ]).style(INPUT_FIELD_STYLE)
-        .render(Rect::new(field_area.x+1, field_area.y+1, field_area.width-2, 1),buf);
+        Line::from(vec![">".into(), (&self.buffer[..]).into()])
+            .style(INPUT_FIELD_STYLE)
+            .render(
+                Rect::new(field_area.x + 1, field_area.y + 1, field_area.width - 2, 1),
+                buf,
+            );
     }
 }
 
@@ -157,11 +161,18 @@ impl<'a> InputHandler for InputField<'a> {
                 }
                 KeyCode::Enter => {
                     //handle enter.
+                    if self.is_input{
+                        self.buffer.push('\x0a')
+                    };
                     return InputDone::Input(self.destination, self.buffer.clone());
                 }
                 KeyCode::Esc => {
                     //and handle escape.
-                    return InputDone::Discard;
+                    if !self.is_input {
+                        return InputDone::Discard;
+                    } else {
+                        return InputDone::Push(WrappedHandlers::PopupMenu(PopupMenu::default()));
+                    }
                 }
                 _ => {} //ignore all other keys.
             }
@@ -396,6 +407,7 @@ impl<'a> InputHandler for PopupMenu<'a> {
                             DECIMAL_PRINTABLES,
                             6,
                             InputDestination::PauseAfterCount,
+                            false,
                         ))
                     }
                     KeyCode::Char('u') => {
@@ -404,6 +416,7 @@ impl<'a> InputHandler for PopupMenu<'a> {
                             HEXADECIMAL_PRINTABLES,
                             4,
                             InputDestination::PauseAfterAddress,
+                            false,
                         ))
                     }
                     KeyCode::Char('d') => {
@@ -412,6 +425,7 @@ impl<'a> InputHandler for PopupMenu<'a> {
                             DECIMAL_PRINTABLES,
                             9,
                             InputDestination::SetDelay,
+                            false,
                         ))
                     }
                     KeyCode::Esc => self.menu_mode = MenuMode::Main,
@@ -424,6 +438,7 @@ impl<'a> InputHandler for PopupMenu<'a> {
                             HEXADECIMAL_PRINTABLES,
                             4,
                             InputDestination::ProgramCounter,
+                            false,
                         ))
                     }
                     KeyCode::Char('r') => {
@@ -432,6 +447,7 @@ impl<'a> InputHandler for PopupMenu<'a> {
                             REGISTER_PRINTABLES,
                             1,
                             InputDestination::RegisterNumber,
+                            false,
                         ))
                     }
                     KeyCode::Char('i') => {
@@ -440,6 +456,7 @@ impl<'a> InputHandler for PopupMenu<'a> {
                             FILE_PATH_PRINTABLES,
                             128,
                             InputDestination::InputPrefill,
+                            false,
                         ))
                     }
                     KeyCode::Esc => self.menu_mode = MenuMode::Main,
@@ -452,6 +469,7 @@ impl<'a> InputHandler for PopupMenu<'a> {
                             FILE_PATH_PRINTABLES,
                             128,
                             InputDestination::SaveMemory,
+                            false,
                         ))
                     }
                     KeyCode::Char('t') => {
@@ -460,6 +478,7 @@ impl<'a> InputHandler for PopupMenu<'a> {
                             FILE_PATH_PRINTABLES,
                             128,
                             InputDestination::TraceOperations,
+                            false,
                         ))
                     }
                     KeyCode::Char('h') => {
@@ -468,6 +487,7 @@ impl<'a> InputHandler for PopupMenu<'a> {
                             "",
                             0,
                             InputDestination::TraceStop,
+                            false,
                         ))
                     }
                     KeyCode::Esc => self.menu_mode = MenuMode::Main,
@@ -491,10 +511,10 @@ impl<'a> InputHandler for BaseHandler<'a> {
             match key_event.code {
                 KeyCode::Esc => {
                     return InputDone::Push(WrappedHandlers::PopupMenu(PopupMenu::default()))
-                },
+                }
                 KeyCode::Char(' ') => {
                     return InputDone::Run;
-                },
+                }
                 KeyCode::Tab => {
                     return InputDone::Step;
                 }
@@ -534,7 +554,14 @@ impl<'a> WrappedHandlers<'a> {
         printables: &'a str,
         max_len: u16,
         destination: InputDestination,
+        locked: bool,
     ) -> Self {
-        return Self::InputField(InputField::new(title, printables, max_len, destination));
+        return Self::InputField(InputField::new(
+            title,
+            printables,
+            max_len,
+            destination,
+            locked,
+        ));
     }
 }
