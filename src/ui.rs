@@ -140,10 +140,12 @@ impl<'a, T: UiInterface + 'a> MainUiState<'a, T> {
                         }
                         crate::ui_components::InputDone::Input(input_destination, value) => {
                             match input_destination {
-                                InputDestination::Input => self
+                                InputDestination::Input => {
+                                    self.prep_string_input(format!("> {value}"));
+                                    self
                                     .vm_channel
                                     .write_input(&value)
-                                    .expect("Could not write input to VM"),
+                                    .expect("Could not write input to VM")},
                                 InputDestination::ProgramCounter => {
                                     let addr = u16::from_str_radix(&value[..], 16)
                                         .expect("Malformed number.");
@@ -362,16 +364,13 @@ impl<'a, T: UiInterface + 'a> MainUiState<'a, T> {
     }
 
     fn load_input_file(&mut self, file_path: &str) -> IoResult<()> {
+        //todo!("Loading an input file before starting the VM does not work; the input gets discarded.");
         let mut file = File::open(file_path)?;
         let mut file_data = String::new();
         file.read_to_string(&mut file_data)?;
-
-        //The input-lines need to have their order reversed here!
-        file_data
-            .split('\x0a')
-            .rev()
-            .map(|instruction_line| self.vm_channel.write_input(&format!("{}\x0a",instruction_line)))
-            .collect()
+        let linecount = file_data.chars().filter(|l| l == &'\x0a').count();
+        self.prep_string_input(format!("Loaded a file ({file_path}) containing {linecount} lines."));
+        self.vm_channel.write_input(&file_data)
     }
 }
 

@@ -97,20 +97,27 @@ impl Widget for &InputField<'_> {
     where
         Self: Sized,
     {
-        // Rules for formatting: the title, if it can't fit, just gets cut off where Ratatui decides it should get cut off.
-        // The input gets at most enough lines to fit its entire target length, and at least as many as the available height
-        // minus 2 (for the border). Just kinda done playing nice :sweat_smile:
-        // First, how wide will the box be? Should be enough to hold the title, ideally, as well as the text to be entered.
-        let target_width = (self.max_len as usize)
+        let target_height:u16;
+        let target_width:u16;
+        let origin_x:u16;
+        let origin_y:u16;
+        if self.is_input {
+            target_height = 4;
+            target_width = area.width - 2;
+            origin_x = 1;
+            origin_y = area.height - 4;
+        } else {
+            target_width = (self.max_len as usize)
             .max(self.title.len() + 4) // +2 to adjust to the borders, another +2 because it gets removed later.
             .min(area.width as usize) as u16
             - 2;
-        // Second: how tall? Will need at least 3 lines; top border (with title), text field, bottom border.
-        let target_height = (3 + (self.max_len / target_width)).min(area.height - 2);
+            target_height = (3 + (self.max_len / target_width)).min(area.height - 2);
+            origin_x = (area.x) + ((area.width - target_width) / 2);
+            origin_y = (area.y) + ((area.height - target_height) / 2);
+        }
+
 
         // next: figure out the origin point (top-left) of the render-area.
-        let origin_x = (area.x) + ((area.width - target_width) / 2);
-        let origin_y = (area.y) + ((area.height - target_height) / 2);
         let field_area = Rect::new(origin_x, origin_y, target_width, target_height);
 
         // Also next: Split up the buffered input into lines, so they can be displayed.
@@ -139,7 +146,7 @@ impl<'a> Debug for InputField<'a> {
             .field("printables", &self.printables)
             .field("title", &self.title)
             .field("max_len", &self.max_len)
-            .field("when_done", &"CALLBACK FUNCTION")
+            .field("is_input", &self.is_input)
             .finish()
     }
 }
@@ -213,7 +220,7 @@ const DECIMAL_PRINTABLES: &str = "0123456789";
 const HEXADECIMAL_PRINTABLES: &str = "0123456789abcdefABCDEF";
 const REGISTER_PRINTABLES: &str = "01234567";
 const FILE_PATH_PRINTABLES: &str =
-    "\\abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_ \"\'";
+    "\\/.abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_ \"\'";
 
 impl Widget for &PopupMenu<'_> {
     fn render(self, area: Rect, buf: &mut Buffer)
