@@ -23,8 +23,8 @@ pub enum InputDone {
     Push(WrappedHandlers<'static>),
     /// There is data ready (and implicitly, discard this object)
     Input(InputDestination, String),
-    /// Special case: run the VM (and implicitly, keep this object.)
-    Run,
+    /// Special case: Invert the VM's running state (and implicitly, keep this object.)
+    Toggle,
     /// Special case: single-step the VM (and implicitly, keep this object.)
     Step,
 }
@@ -348,7 +348,7 @@ const AMPERSAND_SIZE: usize = '&'.len_utf8();
 
 ///Apply the `normal_style` to `text`, except for the character immediately following an ampersand; those characters
 /// have the `highlight_style` applied instead.
-fn build_menu_line(text: &str, normal_style: Style, highlight_style: Style) -> Line {
+fn build_menu_line(text: &'_ str, normal_style: Style, highlight_style: Style) -> Line<'_> {
     //Walk over the string, one character at a time. Remember, Rust uses utf-8 encoded strings, can't just walk byte-by-byte.
     let mark_locations: Vec<usize> = text
         .chars()
@@ -520,7 +520,7 @@ impl<'a> InputHandler for BaseHandler<'a> {
                     return InputDone::Push(WrappedHandlers::PopupMenu(PopupMenu::default()))
                 }
                 KeyCode::Char(' ') => {
-                    return InputDone::Run;
+                    return InputDone::Toggle;
                 }
                 KeyCode::Tab => {
                     return InputDone::Step;

@@ -68,11 +68,6 @@ impl UiInterface for ThreadUiInterface {
         self.need_input.load(Ordering::Relaxed)
     }
 
-    fn is_finished(&self) -> bool {
-        //TODO: figure out a way to check if the VM program finished or not.
-        false
-    }
-
     fn write_input(&mut self, input:&str) -> IoResult<()> {
         let res = self.input_outgoing.send(String::from(input));
         match res {
@@ -113,18 +108,14 @@ impl VmInterface for ThreadVmInterface {
     }
 
     fn read_input(&mut self) -> String {
-        //Ensure that the channel is empty first, so only the most-recent request for input
-        //gets answered
-        let mut clearing = self.input_incoming.try_iter();
-        while let Some(x) = clearing.next() {
-            //Make it explicit that 'junk' Strings are discarded here.
-            drop(x);
+        //first, check if there is input available already.
+        if let Ok(data) = self.input_incoming.try_recv() {
+            return data;
         }
 
-        //Next, signal a need for input.
+        //Else, signal that input is needed, and block until it becomes available.
         self.need_input.store(true, Ordering::Relaxed);
         
-        //Only *now*, block until input is available.
         let input = self.input_incoming.recv();
         match input {
             Ok(s) => {

@@ -3,7 +3,7 @@ use crate::interface::{ProgramStep, RegisterState, VmInstruction, VmInterface};
 use itertools::Itertools;
 use std::convert::From;
 use std::fmt::{Display, Result as fmtResult};
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter, Read, Result as io_result, Write};
 
 pub struct VirtualMachine {
@@ -12,10 +12,6 @@ pub struct VirtualMachine {
     stack: Vec<usize>,
     program_counter: usize,
     input_buffer: Vec<u16>,
-}
-
-pub struct VirtualMachineStep<'a> {
-    machine: &'a mut VirtualMachine,
 }
 
 enum RuntimeState {
@@ -336,6 +332,7 @@ impl VirtualMachine {
         use VmInstruction::*;
         let mut run_state = Paused;
         let mut delay: usize = 0;
+        let mut tracer: Option<BufWriter<File>> = None;
         loop {
             //Check if fetching an instruction from the UI should block. That is, if the current state
             // of the VM is suspended, wait until the UI tells the VM to get going again.
@@ -386,13 +383,36 @@ impl VirtualMachine {
                         .expect("Could not save memory file.");
                     continue;
                 }
-                Some(TraceOperations(_)) => todo!("Implement operation tracing."),
-                Some(TraceStop) => todo!("Implement operation tracing."),
+                Some(TraceOperations(file_path)) => {
+                    let file = OpenOptions::new()
+                        .read(false)
+                        .write(true)
+                        .truncate(true)
+                        .open(file_path);
+                    match file {
+                        Ok(f) => {
+                            let mut t_writer = BufWriter::new(f);
+                            write!(
+                                &mut t_writer,
+                                "Starting trace from address {:04x}",
+                                self.program_counter
+                            )
+                            .expect("Could not write initial line.");
+                        }
+                        Err(e) => panic!("{e}"),
+                    }
+                }
+                Some(TraceStop) => {
+                    if let Some(mut writer) = tracer {
+                        let _ = writer.flush();
+                    }
+                    tracer = None;
+                }
             }
 
-            let reg_state = self.register_snapshot();
             //theoretically, an instruction can overwrite the memory location that the instruction itself is
             // stored at. So, snap-shot the instruction *before* executing it.
+            let reg_state = self.register_snapshot();
             let instr = self.memory[reg_state.program_counter as usize];
 
             match self.operation() {
@@ -403,9 +423,13 @@ impl VirtualMachine {
                     for pv in operands {
                         repr.push_str(&format!(" {pv}")[..]);
                     }
-                    let _ = output.write_step(ProgramStep::step(reg_state.clone(), repr));
+                    let _ = output.write_step(ProgramStep::step(reg_state.clone(), repr.clone()));
                     if let Some(to_print) = to_print {
                         let _ = output.write_output(to_print);
+                    }
+                    if let Some(trace_writer) = tracer.as_mut() {
+                        write!(trace_writer, "{:04x}:{repr}", self.program_counter)
+                            .expect("Error while writing trace-line.");
                     }
                 }
                 Err(RuntimeError::ErrInputEmpty) => {
@@ -441,7 +465,7 @@ impl VirtualMachine {
                         run_state = Paused;
                         continue;
                     }
-                },
+                }
                 Terminated => break,
             };
 
@@ -541,20 +565,5 @@ impl Display for VirtualMachine {
             self.memory.len(),
             self.stack
         )
-    }
-}
-
-impl<'a> Iterator for VirtualMachineStep<'a> {
-    type Item = (Operation, Vec<ParsedValue>, Option<char>);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let res = self.machine.operation();
-        match res {
-            Ok(x) => Some(x),
-            Err(x) => {
-                println!("{:?}", x);
-                None
-            }
-        }
     }
 }

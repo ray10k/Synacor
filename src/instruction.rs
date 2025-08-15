@@ -1,9 +1,6 @@
-use std::fmt::{Display,Result as fmtResult};
+use std::fmt::{Display, Result as fmtResult};
 
-use itertools::Itertools;
-
-
-#[derive(Debug,PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum Operation {
     Halt,
     Set,
@@ -27,7 +24,7 @@ pub enum Operation {
     Out,
     In,
     Noop,
-    Error(u16)
+    Error(u16),
 }
 
 impl From<u16> for Operation {
@@ -43,50 +40,54 @@ impl From<u16> for Operation {
             7 => Self::Jt,
             8 => Self::Jf,
             9 => Self::Add,
-            10=> Self::Mult,
-            11=> Self::Mod,
-            12=> Self::And,
-            13=> Self::Or,
-            14=> Self::Not,
-            15=> Self::Rmem,
-            16=> Self::Wmem,
-            17=> Self::Call,
-            18=> Self::Ret,
-            19=> Self::Out,
-            20=> Self::In,
-            21=> Self::Noop,
-            _ => Self::Error(value)
+            10 => Self::Mult,
+            11 => Self::Mod,
+            12 => Self::And,
+            13 => Self::Or,
+            14 => Self::Not,
+            15 => Self::Rmem,
+            16 => Self::Wmem,
+            17 => Self::Call,
+            18 => Self::Ret,
+            19 => Self::Out,
+            20 => Self::In,
+            21 => Self::Noop,
+            _ => Self::Error(value),
         }
     }
 }
 
 impl Display for Operation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmtResult {
-        write!(f,"{}", match self{
-            Self::Halt => "HALT",
-            Self::Set => "SET ",
-            Self::Push => "PUSH",
-            Self::Pop => "POP ",
-            Self::Eq => "EQ  ",
-            Self::Gt => "GT  ",
-            Self::Jmp => "JMP ",
-            Self::Jt => "JT  ",
-            Self::Jf => "JF  ",
-            Self::Add => "ADD ",
-            Self::Mult => "MULT",
-            Self::Mod => "MOD ",
-            Self::And => "AND ",
-            Self::Or => "OR  ",
-            Self::Not => "NOT ",
-            Self::Rmem => "RMEM",
-            Self::Wmem => "WMEM",
-            Self::Call => "CALL",
-            Self::Ret => "RET ",
-            Self::Out => "OUT ",
-            Self::In => "IN  ",
-            Self::Noop => "NOOP",
-            Self::Error(_) => "!?!?",
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::Halt => "HALT",
+                Self::Set => "SET ",
+                Self::Push => "PUSH",
+                Self::Pop => "POP ",
+                Self::Eq => "EQ  ",
+                Self::Gt => "GT  ",
+                Self::Jmp => "JMP ",
+                Self::Jt => "JT  ",
+                Self::Jf => "JF  ",
+                Self::Add => "ADD ",
+                Self::Mult => "MULT",
+                Self::Mod => "MOD ",
+                Self::And => "AND ",
+                Self::Or => "OR  ",
+                Self::Not => "NOT ",
+                Self::Rmem => "RMEM",
+                Self::Wmem => "WMEM",
+                Self::Call => "CALL",
+                Self::Ret => "RET ",
+                Self::Out => "OUT ",
+                Self::In => "IN  ",
+                Self::Noop => "NOOP",
+                Self::Error(_) => "!?!?",
+            }
+        )
     }
 }
 
@@ -95,7 +96,7 @@ impl Operation {
         match self {
             Self::Halt | Self::Ret | Self::Noop => 0,
             Self::Push | Self::Pop | Self::Jmp | Self::Call | Self::Out | Self::In => 1,
-            Self::Set | Self::Jt | Self::Jf | Self::Not | Self::Rmem |Self::Wmem => 2,
+            Self::Set | Self::Jt | Self::Jf | Self::Not | Self::Rmem | Self::Wmem => 2,
             Self::Eq | Self::Gt | Self::Add | Self::Mult | Self::Mod | Self::And | Self::Or => 3,
             Self::Error(_) => 0xffff,
         }
@@ -105,40 +106,25 @@ impl Operation {
 pub enum ParsedValue {
     Literal(u16),
     Register(u16),
-    Error(u16)
+    Error(u16),
 }
 
-impl From<u16> for ParsedValue{
+impl From<u16> for ParsedValue {
     fn from(value: u16) -> Self {
         match value {
             0..=32767 => Self::Literal(value),
             32768..=32775 => Self::Register(value - 32768),
-            _ => Self::Error(value)
+            _ => Self::Error(value),
         }
     }
 }
 
-impl Display for ParsedValue{
+impl Display for ParsedValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmtResult {
-        match self{
-            Self::Literal(v) => write!(f,"{v:04x}"),
-            Self::Register(v) => write!(f,"  R{v}"),
-            Self::Error(v) => write!(f,"E({v})"),
+        match self {
+            Self::Literal(v) => write!(f, "{v:04x}"),
+            Self::Register(v) => write!(f, "  R{v}"),
+            Self::Error(v) => write!(f, "E({v})"),
         }
     }
-}
-
-/// Takes in a slice of bytes and, if possible, parses to a vector of
-/// u15's (represented as u16's.)
-pub fn parse_program_slice(input:&[u8]) -> Result<Vec<u16>,()> {
-    if input.len() % 2 != 0 {
-        return Err(());
-    }
-    let retval = input.into_iter()
-        .tuples::<(&u8,&u8)>()
-        .map(|(low,high)|{
-            u16::from_le_bytes([*low,*high])
-        })
-        .collect();
-    Ok(retval)
 }

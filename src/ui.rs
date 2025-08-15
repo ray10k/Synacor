@@ -131,11 +131,15 @@ impl<'a, T: UiInterface + 'a> MainUiState<'a, T> {
                     match rm {
                         crate::ui_components::InputDone::Keep => break,
                         crate::ui_components::InputDone::Discard => {
+                            if let &WrappedHandlers::PopupMenu(_) = &self.input_layers[index]{
+                                self.vm_channel.write_state(VmInstruction::Run).expect("Could not resume the VM.");
+                            }
                             to_discard = UiMutation::Delete(index);
                             break;
                         }
                         crate::ui_components::InputDone::Quit => {
                             self.exit = true;
+                            self.vm_channel.write_state(VmInstruction::Terminate).expect("Could not shut the VM down.");
                             break;
                         }
                         crate::ui_components::InputDone::Input(input_destination, value) => {
@@ -212,12 +216,15 @@ impl<'a, T: UiInterface + 'a> MainUiState<'a, T> {
                             break;
                         }
                         crate::ui_components::InputDone::Push(handler) => {
+                            if let &WrappedHandlers::PopupMenu(_) = &handler {
+                                self.vm_channel.write_state(VmInstruction::Pause).expect("Could not pause the VM.");
+                            }
                             to_discard = UiMutation::Push(handler);
                             break;
                         }
-                        crate::ui_components::InputDone::Run => {
+                        crate::ui_components::InputDone::Toggle => {
                             self.vm_channel
-                                .write_state(VmInstruction::Run)
+                                .write_state(VmInstruction::Toggle)
                                 .expect("Could not write instruction to VM.");
                             break;
                         }
