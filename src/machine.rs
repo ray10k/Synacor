@@ -388,18 +388,23 @@ impl VirtualMachine {
                         .read(false)
                         .write(true)
                         .truncate(true)
+                        .create(true)
                         .open(file_path);
                     match file {
                         Ok(f) => {
                             let mut t_writer = BufWriter::new(f);
                             write!(
                                 &mut t_writer,
-                                "Starting trace from address {:04x}",
+                                "Starting trace from address {:04x}\n",
                                 self.program_counter
                             )
                             .expect("Could not write initial line.");
+                            tracer = Some(t_writer);
                         }
-                        Err(e) => panic!("{e}"),
+                        Err(e) => {
+                            eprintln!("Error opening file: {e}");
+                            panic!("{e}")
+                        },
                     }
                 }
                 Some(TraceStop) => {
@@ -420,7 +425,7 @@ impl VirtualMachine {
                     // Set up the "representation" of the executed instruction; a string giving
                     // a human-readable version.
                     let mut repr = format!("{inst}");
-                    for pv in operands {
+                    for pv in operands.iter() {
                         repr.push_str(&format!(" {pv}")[..]);
                     }
                     let _ = output.write_step(ProgramStep::step(reg_state.clone(), repr.clone()));
@@ -428,7 +433,18 @@ impl VirtualMachine {
                         let _ = output.write_output(to_print);
                     }
                     if let Some(trace_writer) = tracer.as_mut() {
-                        write!(trace_writer, "{:04x}:{repr}", self.program_counter)
+                        for _ in operands.len()..4 {
+                            repr.push_str("    ");
+                        }
+                        repr.push('\t');
+                        for op in operands.iter() {
+                            match op {
+                                ParsedValue::Literal(x) => repr.push_str(&format!("<{:04x}>  ",x)),
+                                ParsedValue::Register(r) => repr.push_str(&format!("R{r}:{:04x} ",reg_state.registers[*r as usize])),
+                                ParsedValue::Error(e) => repr.push_str(&format!("? {:04x} ?", e)),
+                            }
+                        }
+                        write!(trace_writer, "{:04x}:{repr}\n", reg_state.program_counter)
                             .expect("Error while writing trace-line.");
                     }
                 }
