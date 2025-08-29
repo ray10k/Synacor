@@ -30,6 +30,12 @@ struct Args {
         short = 'a'
     )]
     analyze: Option<String>,
+    #[arg(
+        help = "Specify additional starting points for analysis.",
+        long_help = "Specify additional 4-digit hexadecimal addresses, to be used as alternative places the program can start from.",
+        short = 's'
+    )]
+    additional_starts: Option<Vec<String>>,
 }
 
 fn main() {
@@ -60,8 +66,21 @@ fn main() {
                     original_name = &args.binary_source[..];
                 }
             }
+
+            let alternative_addresses = args
+                .additional_starts
+                .and_then(|address_strings| 
+                    address_strings.into_iter()
+                    .map(|single_address| match u16::from_str_radix(&single_address, 16) {
+                        Ok(v) => Some(v),
+                        Err(e) => {eprintln!("Parse error: {e}");None},
+                    })
+                    .collect());
+
+            println!("Additional starting points for analysis: {alternative_addresses:?}");
+
             if let Err(e) =
-                static_analysis::parse_program_and_save(&bytes, original_name, &destination[..])
+                static_analysis::parse_program_and_save(&bytes, original_name, &destination[..],alternative_addresses)
             {
                 println!("Error in analysis: {e:?}");
             } else {

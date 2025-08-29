@@ -99,6 +99,7 @@ pub fn parse_program_and_save(
     program: &[u16],
     original_name: &str,
     save_path: &str,
+    additional_starts: Option<Vec<u16>>
 ) -> Result<(), AnalysisError> {
     //Step 1: setup.
     let mut read_addresses: HashSet<u16> = HashSet::new();
@@ -107,6 +108,9 @@ pub fn parse_program_and_save(
     let mut jump_targets: Vec<u16> = Vec::with_capacity(8);
     let mut jump_info: Vec<Jump> = Vec::new();
     jump_targets.push(0);
+    if let Some(addresses) = additional_starts {
+        jump_targets.extend_from_slice(&addresses);
+    }
 
     //Step 2: simulate.
     //Grab a 'waiting' jump target to begin.
@@ -125,7 +129,7 @@ pub fn parse_program_and_save(
                 //option 1: end-of-block with no further considerations needed.
                 Operation::Halt | Operation::Ret | Operation::Error(_) => {
                     //Save the current block, keep going.
-                    let end = program_counter as u16 + operands + 1;
+                    let end = program_counter as u16 + operands;
                     exec_blocks.push(ExecBlock::new(block_start, end));
 
                     jump_info.push(Jump {
@@ -137,7 +141,7 @@ pub fn parse_program_and_save(
                 //option 2: end-of-block via unconditional, un-resumable jump.
                 Operation::Jmp => {
                     //Save the current block, try to add the jump target to the buffer.
-                    let end = program_counter as u16 + operands + 1;
+                    let end = program_counter as u16 + operands;
                     exec_blocks.push(ExecBlock::new(block_start, end));
                     let target = ParsedValue::from(program[program_counter + 1]);
                     if let ParsedValue::Literal(address) = target {
