@@ -136,6 +136,11 @@ pub fn parse_program_and_save(
                         from: program_counter as u16,
                         target: None,
                     });
+                    let next_value = Operation::from(program[end as usize + 1]);
+                    if let Operation::Error(_) = next_value {
+                        continue 'executable;
+                    }
+                    jump_targets.push(end+1);
                     continue 'executable;
                 }
                 //option 2: end-of-block via unconditional, un-resumable jump.
@@ -156,6 +161,11 @@ pub fn parse_program_and_save(
                             target: None,
                         });
                     }
+                    let next_value = Operation::from(program[end as usize + 1]);
+                    if let Operation::Error(_) = next_value {
+                        continue 'executable;
+                    }
+                    jump_targets.push(end+1);
                     continue 'executable;
                 }
                 //option 3: optional jump.
