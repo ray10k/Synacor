@@ -107,17 +107,13 @@ WORD xor(a, b) {
 WORD func_17a1(a, b, c) { //Seems to do a bunch of recursive operations on a and b, with c being a constant.
     if (a != 0) {
         if (b != 0) {
-            save(a);
-            a = (a + 0x7fff) % WORD_MAX;
-            b = func_17a1(a,b,c)
-            load(a);
-            a = (a + 0x7fff) % WORD_MAX;
+            b = func_17a1(a-1,b,c)
+            a -= 1;
             return func_17a1(a,b,c);
         }
         else {
-            a = (a + 0x7fff) % WORD_MAX;
-            b = c;
-            a = func_17a1(a,b,c);
+            a -= 1;
+            a = func_17a1(a,c,c);
             return a;
         }
     }
