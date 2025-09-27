@@ -1,35 +1,35 @@
 use rayon::{prelude::*, ThreadPool, ThreadPoolBuilder};
 use std::collections::HashMap;
-
 fn main() {
     let main_threadpool: ThreadPool = ThreadPoolBuilder::new()
         .stack_size(1024 * 1024)
         .build()
         .expect("Could not build threadpool.");
 
+
+    println!("Sanity check with c == 1:");
+    let test = round_five(2,1,1);
+    println!("result: {test} (should be 5)");
+
     println!("Trying to find a needle in a 0x7fff haystack!"); 
-    /*
+    
     let results: Vec<u16> = main_threadpool.install(|| {
         (1u16..=0x7fff)
             .into_par_iter()
-            .map(|count| {if count%16 == 0 {println!("{count:4x}")}; count})
-            .filter(|constant| round_three(4, 1, *constant) == 6)
+            .map(|count| {println!(">{count:4x}"); count})
+            .filter(|constant| {let result = round_five(4, 1, *constant); println!("<{constant:4x}:{result}");result == 6})
             .collect()
-    });*/
+    });
 /*
     let results: Vec<u16> = (1u16..=0x7fff)
         .into_iter()
         .filter(|constant| {
             println!("{constant:4x}");
-            let lookup_table = HashMap::with_capacity(0x1000);
-            let (result, _) = round_four(4, 1, *constant, lookup_table);
+            let result = round_five(4, 1, *constant);
             result == 6})
-        .collect();
+        .collect();*/
     println!("Found the following results: {results:?}");
-    */
-    println!("Sanity check with c == 0:");
-    let test = round_five(2,1,1);
-    println!("result: {test} (should be 5)");
+  
 }
 
 fn round_one(a: u16, b: u16, c: u16) -> u16 {
@@ -110,32 +110,28 @@ fn round_four(a:u16,b:u16,c:u16,mut lookup:HashMap<u32,u16>) -> (u16,HashMap<u32
 
 fn round_five(a:u16,b:u16,c:u16) -> u16 {
     let mut stack = Vec::with_capacity(0x1000);
-    stack.push(c);
-    stack.push(b);
     stack.push(a);
-    while stack.len() > 2 {
-        println!("->{stack:?}");
-        let x = stack.pop().unwrap(); //a
-        let y = stack.pop().unwrap(); //b
-        let z = stack.pop().unwrap(); //c
-        if x == 0 {
-            stack.push(z);
-            stack.push((y+1) & 0x7fff);
-        }
-        else if y == 0 {
-            stack.push(z);
-            stack.push(z);
-            stack.push(x - 1);
-        }
-        else {
-            stack.push(z);
-            stack.push(y-1);
-            stack.push(y);
-            stack.push(x-1);
-        }
+    stack.push(b);
+    while stack.len() >= 2 {
+        let n = stack.pop(); //a
+        let m = stack.pop(); //b
+        match (m,n) {
+            (Some(0),Some(y)) => {
+                stack.push((y+1) & 0x7fff);
+            },
+            (Some(x),Some(0)) => {
+                stack.push(x-1);
+                stack.push(c);
+            },
+            (Some(x),Some(y)) => {
+                stack.push(x-1);
+                stack.push(x);
+                stack.push(y-1);
+            },
+            (None,_)|(_,None) => {panic!("Remaining Stack too small, somehow")}
+        };
     }
     return stack[0];
-
 }
 
 
