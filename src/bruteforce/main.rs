@@ -1,5 +1,10 @@
+extern crate jemallocator;
 use rayon::{prelude::*, ThreadPool, ThreadPoolBuilder};
 use std::collections::HashMap;
+
+#[global_allocator]
+static GLOBAL: jemallocator::Jemalloc = jemallocator::Jemalloc;
+
 fn main() {
     let main_threadpool: ThreadPool = ThreadPoolBuilder::new()
         .stack_size(1024 * 1024)
@@ -8,16 +13,29 @@ fn main() {
 
 
     println!("Sanity check with c == 1:");
-    let test = round_five(2,1,1);
+    let test = round_six(2,1,1);
     println!("result: {test} (should be 5)");
-
+/*
+    let _:Vec<u16> = (1..=10u16).map(|c|{
+        println!("\nTop-left table for C={c}");
+        println!("n\\m      0|    1|    2|    3|    4|    5");
+        for n in 0..=3 {
+            print!("{n}    ");
+            for m in 0..=5 {
+                let result = round_six(n, m, c);
+                print!("{result:>5}|");
+            }
+            println!("");
+        }
+        c
+    }).collect();*/
     println!("Trying to find a needle in a 0x7fff haystack!"); 
     
     let results: Vec<u16> = main_threadpool.install(|| {
         (1u16..=0x7fff)
             .into_par_iter()
             .map(|count| {println!(">{count:4x}"); count})
-            .filter(|constant| {let result = round_five(4, 1, *constant); println!("<{constant:4x}:{result}");result == 6})
+            .filter(|constant| {let result = round_six(4, 1, *constant); println!("<{constant:4x}:{result}");result == 6})
             .collect()
     });
 /*
@@ -134,7 +152,34 @@ fn round_five(a:u16,b:u16,c:u16) -> u16 {
     return stack[0];
 }
 
+fn round_six(a:u16, b:u16, c:u16) -> u16 {
+    let mut stack = Vec::with_capacity(0x1000);
+    let mut n = b;
+    let mut m = a;
+    'outer:loop {
+        match (n,m) {
+            (_,0) => {
+                n = (n + 1) & 0x7fff;
+                match stack.pop() {
+                    Some(x) => {
+                        m = x;
+                    },
+                    None => break 'outer,
+                }
+            },
+            (0,_) => {
+                n = c;
+                m -= 1;
+            },
+            (_, _) => {
+                stack.push(m-1);
+                n -= 1;
+            }
 
+        }
+    }
+    return n;
+}
 /*
 
 17a1 JT   0007   R0 17a9
