@@ -5,48 +5,48 @@ use std::collections::HashMap;
 #[global_allocator]
 static GLOBAL: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
-fn main() {
+fn print_topleft(c:u16) {
+    println!("\nTop-left table for C={c}");
+    println!("n\\m      0|    1|    2|    3|    4|    5");
+    for n in 0..=3 {
+        print!("{n}    ");
+        for m in 0..=5 {
+            let result = round_seven(n, m, c);
+            print!("{result:>5}|");
+        }
+        println!("");
+    }
+}
+
+fn print_haystack() {
     let main_threadpool: ThreadPool = ThreadPoolBuilder::new()
         .stack_size(1024 * 1024)
         .build()
         .expect("Could not build threadpool.");
-
-
-    println!("Sanity check with c == 1:");
-    let test = round_six(2,1,1);
-    println!("result: {test} (should be 5)");
-/*
-    let _:Vec<u16> = (1..=10u16).map(|c|{
-        println!("\nTop-left table for C={c}");
-        println!("n\\m      0|    1|    2|    3|    4|    5");
-        for n in 0..=3 {
-            print!("{n}    ");
-            for m in 0..=5 {
-                let result = round_six(n, m, c);
-                print!("{result:>5}|");
-            }
-            println!("");
-        }
-        c
-    }).collect();*/
     println!("Trying to find a needle in a 0x7fff haystack!"); 
     
     let results: Vec<u16> = main_threadpool.install(|| {
         (1u16..=0x7fff)
             .into_par_iter()
             .map(|count| {println!(">{count:4x}"); count})
-            .filter(|constant| {let result = round_six(4, 1, *constant); println!("<{constant:4x}:{result}");result == 6})
+            .filter(|constant| {let result = round_seven(4, 1, *constant); println!("<{constant:4x}:{result}");result == 6})
             .collect()
     });
-/*
-    let results: Vec<u16> = (1u16..=0x7fff)
-        .into_iter()
-        .filter(|constant| {
-            println!("{constant:4x}");
-            let result = round_five(4, 1, *constant);
-            result == 6})
-        .collect();*/
     println!("Found the following results: {results:?}");
+}
+
+fn main() {
+
+
+
+    println!("Sanity check with c == 1:");
+    let test = round_seven(2,1,1);
+    println!("result: {test} (should be 5)");
+    
+    let _:Vec<u16> = (1..=10u16).map(|c|{
+        print_topleft(c);
+        c
+    }).collect();
   
 }
 
@@ -171,6 +171,56 @@ fn round_six(a:u16, b:u16, c:u16) -> u16 {
                 n = c;
                 m -= 1;
             },
+            (_, _) => {
+                stack.push(m-1);
+                n -= 1;
+            }
+
+        }
+    }
+    return n;
+}
+
+fn round_seven(a:u16, b:u16, c:u16) -> u16 {
+    let mut stack = Vec::with_capacity(0x1000);
+    let mut n = b;
+    let mut m = a;
+    'outer:loop {
+        //println!("{stack:?} A({n},{m})");
+        match (n,m) {
+            (_,0) => {
+                n = (n + 1) & 0x7fff;
+                match stack.pop() {
+                    Some(x) => {
+                        m = x;
+                    },
+                    None => break 'outer,
+                }
+            },
+            (0,_) => {
+                n = c;
+                m -= 1;
+            },
+            (1,_) => {
+                n = (m + c) & 0x7fff;
+                match stack.pop() {
+                    Some(x) => {
+                        m = x;
+                    },
+                    None => break 'outer,
+                }
+            }
+            (2,_) => {
+                let large_m:usize = m as usize;
+                let result = (large_m + 1) + ((large_m + 2) * c as usize);
+                n = (result & 0x7fff) as u16;
+                match stack.pop() {
+                    Some(x) => {
+                        m = x;
+                    },
+                    None => break 'outer,
+                }
+            }
             (_, _) => {
                 stack.push(m-1);
                 n -= 1;
