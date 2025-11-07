@@ -5,17 +5,35 @@ use std::collections::HashMap;
 #[global_allocator]
 static GLOBAL: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
-fn print_topleft(c:u16) {
+fn print_sanity_check() {
+    println!("Confirming that f(2,1,1) == 5.");
+    println!("Round 6: {}", round_six(2, 1, 1,true));
+    println!("Round 7: {}", round_seven(2,1,1,true));
+}
+
+fn print_topleft(c:u16, r6:bool) {
     println!("\nTop-left table for C={c}");
-    println!("n\\m      0|    1|    2|    3|    4|    5");
-    for n in 0..=3 {
-        print!("{n}    ");
-        for m in 0..=5 {
-            let result = round_seven(n, m, c);
+    println!("m\\n      0|    1|    2|    3|    4|    5");
+    for m in 0..=3 {
+        print!("{m}    ");
+        for n in 0..=5 {
+            let result = if r6 {
+                round_six(m, n, c,false)
+            } else {
+                round_seven(m,n,c,false)
+            };
             print!("{result:>5}|");
         }
         println!("");
     }
+}
+
+fn print_one_cell(m:u16, n:u16, r6:bool) {
+    println!("Values along C, for f({m},{n}):");
+    for c in 1..=10 {
+        print!("{:>5}",if r6 {round_six(m,n,c,false)} else {round_seven(m,n,c,false)});
+    }
+    println!("");
 }
 
 fn print_haystack() {
@@ -29,25 +47,15 @@ fn print_haystack() {
         (1u16..=0x7fff)
             .into_par_iter()
             .map(|count| {println!(">{count:4x}"); count})
-            .filter(|constant| {let result = round_seven(4, 1, *constant); println!("<{constant:4x}:{result}");result == 6})
+            .filter(|constant| {let result = round_seven(4, 1, *constant,false); println!("<{constant:4x}:{result}");result == 6})
             .collect()
     });
     println!("Found the following results: {results:?}");
 }
 
 fn main() {
-
-
-
-    println!("Sanity check with c == 1:");
-    let test = round_seven(2,1,1);
-    println!("result: {test} (should be 5)");
-    
-    let _:Vec<u16> = (1..=10u16).map(|c|{
-        print_topleft(c);
-        c
-    }).collect();
-  
+    print_sanity_check();
+    print_haystack();
 }
 
 fn round_one(a: u16, b: u16, c: u16) -> u16 {
@@ -152,11 +160,12 @@ fn round_five(a:u16,b:u16,c:u16) -> u16 {
     return stack[0];
 }
 
-fn round_six(a:u16, b:u16, c:u16) -> u16 {
+fn round_six(a:u16, b:u16, c:u16, verbose:bool) -> u16 {
     let mut stack = Vec::with_capacity(0x1000);
     let mut n = b;
     let mut m = a;
     'outer:loop {
+        if verbose {println!("{stack:?} A({n},{m})");}
         match (n,m) {
             (_,0) => {
                 n = (n + 1) & 0x7fff;
@@ -181,14 +190,14 @@ fn round_six(a:u16, b:u16, c:u16) -> u16 {
     return n;
 }
 
-fn round_seven(a:u16, b:u16, c:u16) -> u16 {
+fn round_seven(a:u16, b:u16, c:u16, verbose:bool) -> u16 {
     let mut stack = Vec::with_capacity(0x1000);
     let mut n = b;
     let mut m = a;
     'outer:loop {
-        //println!("{stack:?} A({n},{m})");
-        match (n,m) {
-            (_,0) => {
+        if verbose {println!("{stack:?} A({m},{n})");}
+        match (m,n) {
+            (0,_) => {
                 n = (n + 1) & 0x7fff;
                 match stack.pop() {
                     Some(x) => {
@@ -197,12 +206,12 @@ fn round_seven(a:u16, b:u16, c:u16) -> u16 {
                     None => break 'outer,
                 }
             },
-            (0,_) => {
+            (_,0) => {
                 n = c;
                 m -= 1;
             },
             (1,_) => {
-                n = (m + c) & 0x7fff;
+                n = (n + c + 1) & 0x7fff;
                 match stack.pop() {
                     Some(x) => {
                         m = x;
@@ -211,8 +220,8 @@ fn round_seven(a:u16, b:u16, c:u16) -> u16 {
                 }
             }
             (2,_) => {
-                let large_m:usize = m as usize;
-                let result = (large_m + 1) + ((large_m + 2) * c as usize);
+                let large_n:usize = n as usize;
+                let result = (large_n + 1) + ((large_n + 2) * c as usize);
                 n = (result & 0x7fff) as u16;
                 match stack.pop() {
                     Some(x) => {
