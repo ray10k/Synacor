@@ -21,3 +21,7 @@ path = "src/main.rs"
 [[bin]]
 name = "bruteforce"
 path = "src/bruteforce/main.rs"
+
+[[bin]]
+name = "binmod"
+path = "src/binmod/main.rs"
