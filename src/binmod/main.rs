@@ -84,7 +84,7 @@ fn main() {
     //Apply each segment to the fetched data.
     for segment in args.segments.iter() {
         let start_index = (segment.start_address as usize) * 2;
-        for index in 0..=segment.data.len() {
+        for index in 0..segment.data.len() {
             file_data[start_index + index] = segment.data[index];
         }
     }
