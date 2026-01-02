@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 
 #[derive(Clone, Copy)]
 pub enum TileContent {
@@ -38,9 +40,34 @@ pub enum StepDirection {
     None
 }
 
+impl Display for StepDirection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", 
+            match self {
+                StepDirection::North => "north",
+                StepDirection::East => "east",
+                StepDirection::South => "south",
+                StepDirection::West => "west",
+                StepDirection::None => " ",
+            }
+        )
+    }
+}
+
+#[derive(Clone, Copy)]
 pub struct Route {
     steps:[StepDirection; 15],
-    step_count:u8
+    pub step_count:u8
+}
+
+impl Display for Route {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f,"(Route with {} steps.)\n",self.step_count)?;
+        for i in 0..self.step_count {
+            write!(f,"{}\n",self.steps[i as usize])?;
+        }
+        std::fmt::Result::Ok(())
+    }
 }
 
 impl Route {
@@ -51,63 +78,99 @@ impl Route {
         }
     }
 
-    pub fn verify(&self) -> bool {
-        let map = generate_map();
-        let mut current_cell:usize = 0;
-        let mut current_weight:usize = 22;
-        let mut operation:TileContent = TileContent::Value(22);
-        //checks 1 and 2: Does the route ever go outside the 4x4 play-area,
-        // and does the orb ever go below 1 weight?
-        for current_step in self.steps.iter() {
-            let x = current_cell / 4;
-            let y = current_cell % 4;
-            match current_step {
-                StepDirection::North => if y < 3 {
-                    current_cell += 1;
-                } else {
-                    return false
-                },
-                StepDirection::East => if x < 3 {
-                    current_cell += 4;
-                } else {
-                    return false
-                },
-                StepDirection::South => if y > 0 {
-                    current_cell -= 1;
-                } else {
-                    return false
-                },
-                StepDirection::West => if x > 0 {
-                    current_cell -= 4;
-                } else {
-                    return false;
-                },
-                StepDirection::None => break,
+    pub fn add_step(&self, step:StepDirection) -> Option<Self> {
+        if self.step_count >= 15 {
+            return None;
+        }
+        let mut retval = self.clone();
+        retval.step_count += 1;
+        retval.steps[self.step_count as usize] = step;
+        Some(retval)
+    }
+
+    pub fn worst_route() -> Self {
+        Route { steps: [StepDirection::None;15], step_count: 17 }
+    }
+
+    pub fn coordinates(&self) -> (u8,u8) {
+        let mut x = 0;
+        let mut y = 0;
+
+        for step in self.steps.iter() {
+            match step {
+                StepDirection::North => y += 1,
+                StepDirection::East => x += 1,
+                StepDirection::South => y -= 1,
+                StepDirection::West => x -= 1,
+                StepDirection::None => (),
             }
-            if let TileContent::Value(value) = map[current_cell] {
-                match operation {
-                    TileContent::Plus => {
-                        current_weight += value as usize;
-                    },
+        }
+
+        (x,y)
+    }
+
+    pub fn orb_weight(&self) -> usize {
+        let mut retval = 22;
+        let mut x=0;
+        let mut y =0;
+        let mut last_op = TileContent::Value(22);
+        let map = generate_map();
+
+        for step in self.steps.iter() {
+            match step {
+                StepDirection::North => {
+                    if y == 3 {
+                        return 0;
+                    }
+                    y += 1},
+                StepDirection::East => {
+                    if x == 3 {
+                        return 0;
+                    }
+                    x += 1},
+                StepDirection::South => {
+                    if y == 0 {
+                        return 0;
+                    }
+                    y -= 1;
+                },
+                StepDirection::West => {
+                    if x == 0 {
+                        return 0;
+                    }
+                    x -= 1},
+                StepDirection::None => (),
+            }
+            let index = y + (x * 4);
+            let curr_op = map[index];
+            if let TileContent::Value(value) = curr_op {
+                match last_op {
+                    TileContent::Plus => retval += value as usize,
                     TileContent::Minus => {
-                        if current_weight <= value as usize {
-                            return false; //Orb would have hit 0 or below.
+                        if value as usize >= retval {
+                            return 0;
                         }
-                        current_weight -= value as usize;
+                        retval -= value as usize;
                     },
-                    TileContent::Asterisk => {
-                        current_weight *= value as usize;
-                    },
-                    TileContent::Value(_) => panic!("Two values in a row?"),
+                    TileContent::Asterisk => retval *= value as usize,
+                    TileContent::Value(_) => (), //just do nothing, since this will trigger on the initial 0,0 coordinate.
                 }
             }
-            operation = map[current_cell];
+            last_op = curr_op;
         }
-        //check 3: is the current route, *plus* the minimum number of
-        // steps to reach the exit, 15 or more steps long?
-        let x = current_cell / 4;
-        let y = current_cell % 4;
+
+        return retval
+    }
+
+    pub fn verify(&self) -> bool {
+
+        let weight = self.orb_weight();
+        if weight == 0 {
+            return false;
+        }
+
+        let (x, y) = self.coordinates();
         let manhattan_distance = (3 - x) + (3 - y);
-        manhattan_distance + (self.step_count as usize) < 16
+        manhattan_distance + self.step_count < 16
     }
 }
